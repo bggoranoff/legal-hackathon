@@ -3,6 +3,8 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend/data:/app/data
     environment:
       - AWS_BEARER_TOKEN_BEDROCK
       - TYPESAFE_API_KEY

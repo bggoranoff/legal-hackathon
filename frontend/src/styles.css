@@ -109,6 +109,7 @@ ul.list button.row {
   border: none;
   padding: 10px 12px;
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -120,10 +121,17 @@ ul.list button.row.active {
 
 .row-id {
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .row-matter {
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  text-align: right;
 }
 
 .row.active .row-matter {
@@ -133,11 +141,16 @@ ul.list button.row.active {
 .trace {
   border: 1px solid var(--line);
   padding: 16px;
+  overflow: hidden;
 }
 
 .columns > .trace,
 .columns > .empty {
   height: var(--pane-h);
+}
+
+.trace-scroll {
+  height: 100%;
   overflow-y: auto;
 }
 
@@ -164,6 +177,68 @@ ul.list button.row.active {
   white-space: pre-wrap;
 }
 
+.pii {
+  background: #d9d9d9;
+  color: #000;
+  font-weight: 700;
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+
+.step.clickable {
+  cursor: pointer;
+}
+
+.step.clickable:hover {
+  background: #f2f2f2;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 10;
+}
+
+.modal {
+  background: #fff;
+  border: 2px solid var(--line);
+  width: 640px;
+  max-width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-title {
+  font-weight: 700;
+}
+
+.modal-close {
+  border: none;
+  padding: 4px 8px;
+}
+
+.modal-detail {
+  padding: 16px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
 .empty {
   color: var(--muted);
   border: 1px dashed var(--muted);
@@ -171,7 +246,7 @@ ul.list button.row.active {
 }
 
 .verify-pane {
-  height: 120px;
+  height: 150px;
 }
 
 .verify-pane .empty {
@@ -188,6 +263,33 @@ ul.list button.row.active {
 .score .num {
   font-size: 40px;
   font-weight: 700;
+}
+
+.score-avg {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: middle;
+}
+
+.dot.red {
+  background: #d21f1f;
+}
+
+.dot.yellow {
+  background: #e0a800;
+}
+
+.dot.green {
+  background: #16a34a;
 }
 
 .num.good {

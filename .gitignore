@@ -1,1 +1,11 @@
 .keys
+backend/.venv/
+frontend/node_modules/
+__pycache__/
+*.pyc
+
+# Generated pipeline caches (regenerable; not source)
+backend/data/inferred_*.json
+backend/data/redacted_traces*.json
+backend/data/synthetic_traces*.json
+backend/data/verify_score*.json

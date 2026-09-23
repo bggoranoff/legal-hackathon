@@ -4,7 +4,6 @@ import json
 import os
 
 _PATH = os.path.join(os.path.dirname(__file__), "data", "source_traces.jsonl")
-_MAX = 600  # cap any single step detail so document passages stay readable in the pane
 
 _CASES = {
     "microsoft_activision": "Microsoft / Activision Blizzard",
@@ -21,8 +20,7 @@ _CASES = {
 
 
 def _clip(text):
-    text = " ".join(str(text).split())
-    return text if len(text) <= _MAX else text[:_MAX].rstrip() + " …"
+    return " ".join(str(text).split())
 
 
 def _detail(event):
@@ -54,15 +52,16 @@ def _matter(record):
     return f"{name} — {record['workflow'].replace('_', ' ').title()}"
 
 
+def flatten_record(record):
+    """Return one raw source record as {id, matter, steps:[{step, action, detail}]}."""
+    steps = [
+        {"step": e["sequence"], "action": _action(e), "detail": _detail(e)}
+        for e in record["events"]
+    ]
+    return {"id": record["trace_id"], "matter": _matter(record), "steps": steps}
+
+
 def load_traces():
     """Return every session as {id, matter, steps:[{step, action, detail}]}."""
-    out = []
     with open(_PATH) as f:
-        for line in f:
-            record = json.loads(line)
-            steps = [
-                {"step": e["sequence"], "action": _action(e), "detail": _detail(e)}
-                for e in record["events"]
-            ]
-            out.append({"id": record["trace_id"], "matter": _matter(record), "steps": steps})
-    return out
+        return [flatten_record(json.loads(line)) for line in f]
