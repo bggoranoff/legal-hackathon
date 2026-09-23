@@ -92,11 +92,11 @@ class BedrockBackendTests(unittest.TestCase):
         self.assertIn("ThrottlingException", str(error.exception))
         self.assertNotIn("secret input", str(error.exception))
 
-    def test_gpt_6_luna_defaults_to_max_and_others_to_unset(self):
+    def test_gpt_6_models_default_to_high_and_others_to_unset(self):
         fake = FakeBedrock(tool_response({"x": 1}))
         luna = BedrockConverseBackend("global.openai.gpt-6-luna", client=fake)
         luna.complete(request())
-        self.assertEqual({"reasoning": {"effort": "max"}}, fake.calls[0]["additionalModelRequestFields"])
+        self.assertEqual({"reasoning": {"effort": "high"}}, fake.calls[0]["additionalModelRequestFields"])
         self.assertEqual(32000, fake.calls[0]["inferenceConfig"]["maxTokens"])
         fake = FakeBedrock(tool_response({"x": 1}))
         BedrockConverseBackend("global.openai.gpt-6-luna", client=fake, reasoning_effort="low").complete(request())
