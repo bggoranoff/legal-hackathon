@@ -24,6 +24,18 @@ from .models import JSONRequest, JSONResponse, ModelResponseError, TraceError
 _MODES = ("tool", "text")
 # Reasoning levels accepted by OpenAI reasoning models on Bedrock (e.g. GPT 6 Luna).
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
+# GPT 6 Luna runs at max reasoning unless told otherwise. Other models get no
+# reasoning setting by default (Claude on Bedrock rejects it).
+DEFAULT_REASONING = {"gpt-6-luna": "max"}
+_AUTO = "auto"
+
+
+def default_reasoning_effort(model: str) -> str | None:
+    """The reasoning level used when none is given: max for GPT 6 Luna, else none."""
+    for name, effort in DEFAULT_REASONING.items():
+        if name in model:
+            return effort
+    return None
 _TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 
 
@@ -71,10 +83,19 @@ class BedrockConverseBackend:
     """Fresh, stateless Converse calls with a caller-selected Bedrock model ID."""
 
     def __init__(self, model: str, *, client: Any = None, region: str | None = None,
-                 max_output_tokens: int = 8192, timeout: float = 120.0,
-                 structured: str = "tool", reasoning_effort: str | None = None):
+                 max_output_tokens: int | None = None, timeout: float | None = None,
+                 structured: str = "tool", reasoning_effort: str | None = _AUTO):
         if type(model) is not str or not model.strip():
             raise TraceError("An explicit model name is required")
+        if reasoning_effort == _AUTO:
+            reasoning_effort = default_reasoning_effort(model) if isinstance(model, str) else None
+        # Reasoning tokens count toward the output limit and take longer, so
+        # reasoning runs get more room unless the caller sets limits.
+        thinking = reasoning_effort not in (None, "none")
+        if max_output_tokens is None:
+            max_output_tokens = 32000 if thinking else 8192
+        if timeout is None:
+            timeout = 600.0 if thinking else 120.0
         if type(max_output_tokens) is not int or max_output_tokens <= 0:
             raise TraceError("max_output_tokens must be a positive integer")
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
@@ -89,8 +110,8 @@ class BedrockConverseBackend:
         self.max_output_tokens = max_output_tokens
         self.timeout = timeout
         self.structured = structured
-        # None leaves the model's default. Only models that take an OpenAI-style
-        # reasoning setting accept this; others reject the request.
+        # By default: max for GPT 6 Luna, unset for other models. None leaves the
+        # model's own default. Only OpenAI-style reasoning models accept a level.
         self.reasoning_effort = reasoning_effort
 
     def _get_client(self) -> Any:

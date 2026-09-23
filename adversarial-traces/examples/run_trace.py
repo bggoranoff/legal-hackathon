@@ -194,7 +194,7 @@ def parser():
         "Run the final attacker on OpenAI with web search (off by default; needs OPENAI_API_KEY)"))
     result.add_argument("--region", help="Bedrock region; defaults to AWS_REGION, then us-east-1")
     result.add_argument("--reasoning-effort", choices=("none", "low", "medium", "high", "xhigh", "max"),
-        help="Reasoning level for Bedrock models that support it, e.g. GPT 6 Luna (default: model default)")
+        help="Reasoning level for Bedrock models that support it (default: max for GPT 6 Luna, unset for others)")
     result.add_argument("--bedrock-structured", choices=("tool", "text"), default="tool", help=(
         "How Bedrock returns JSON: forced tool call (default) or plain JSON text for models without tool choice"))
     return result
@@ -223,11 +223,9 @@ def main(argv=None):
         rules = _rules(args.rules)
         # Construction is lazy: no SDK/client initialization occurs here.
         def bedrock(model):
-            # Reasoning tokens count toward the output limit and take longer, so
-            # allow more room when a reasoning level is set.
-            room = {"max_output_tokens": 32000, "timeout": 600.0} if args.reasoning_effort else {}
-            return BedrockConverseBackend(model, region=args.region, structured=args.bedrock_structured,
-                                          reasoning_effort=args.reasoning_effort, **room)
+            # Without --reasoning-effort the backend default applies (max for GPT 6 Luna).
+            effort = {"reasoning_effort": args.reasoning_effort} if args.reasoning_effort else {}
+            return BedrockConverseBackend(model, region=args.region, structured=args.bedrock_structured, **effort)
 
         inference = PromptInferenceModel(bedrock(args.inference_model))
         anonymizer = PromptAnonymizerModel(bedrock(args.anonymizer_model))

@@ -92,6 +92,23 @@ class BedrockBackendTests(unittest.TestCase):
         self.assertIn("ThrottlingException", str(error.exception))
         self.assertNotIn("secret input", str(error.exception))
 
+    def test_gpt_6_luna_defaults_to_max_and_others_to_unset(self):
+        fake = FakeBedrock(tool_response({"x": 1}))
+        luna = BedrockConverseBackend("global.openai.gpt-6-luna", client=fake)
+        luna.complete(request())
+        self.assertEqual({"reasoning": {"effort": "max"}}, fake.calls[0]["additionalModelRequestFields"])
+        self.assertEqual(32000, fake.calls[0]["inferenceConfig"]["maxTokens"])
+        fake = FakeBedrock(tool_response({"x": 1}))
+        BedrockConverseBackend("global.openai.gpt-6-luna", client=fake, reasoning_effort="low").complete(request())
+        self.assertEqual({"reasoning": {"effort": "low"}}, fake.calls[0]["additionalModelRequestFields"])
+        fake = FakeBedrock(tool_response({"x": 1}))
+        BedrockConverseBackend("global.openai.gpt-6-luna", client=fake, reasoning_effort=None).complete(request())
+        self.assertNotIn("additionalModelRequestFields", fake.calls[0])
+        fake = FakeBedrock(tool_response({"x": 1}))
+        BedrockConverseBackend("global.anthropic.claude-opus-4-5-20251101-v1:0", client=fake).complete(request())
+        self.assertNotIn("additionalModelRequestFields", fake.calls[0])
+        self.assertEqual(8192, fake.calls[0]["inferenceConfig"]["maxTokens"])
+
     def test_reasoning_effort_is_sent_only_when_set(self):
         self.backend(tool_response({"x": 1})).complete(request())
         self.assertNotIn("additionalModelRequestFields", self.fake.calls[0])
