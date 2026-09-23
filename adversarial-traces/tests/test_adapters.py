@@ -7,11 +7,12 @@ from types import SimpleNamespace
 import unittest
 
 from adversarial_traces.adapters import (
+    PromptMatchJudge,
     PromptAnonymizerModel, PromptFinalAttacker, PromptInferenceModel,
     PromptWorldGenerator,
 )
 from adversarial_traces.models import (
-    Hint, Inference, JSONRequest, JSONResponse, ModelResponseError,
+    AttackReport, Hint, Inference, JSONRequest, JSONResponse, MatterGuess, ModelResponseError,
     Segment, Trace, TraceError, WorldRules,
 )
 from adversarial_traces.openai_backend import OpenAIResponsesBackend
@@ -241,6 +242,22 @@ class FakeResponses:
         if isinstance(self.response, Exception):
             raise self.response
         return copy.deepcopy(self.response)
+
+
+class JudgeTests(unittest.TestCase):
+    def test_judge_gets_original_and_answer_and_returns_bool(self):
+        report = AttackReport((MatterGuess(identity="Elm deal", parties=("Elm",)),), "Looks like Elm")
+        backend = RecordingBackend(JSONResponse({"identified": True, "matched": "Elm"}))
+        self.assertTrue(PromptMatchJudge(backend).judge(sample_trace(), report))
+        payload = backend.requests[0].payload
+        self.assertEqual({"original_trace", "attacker_answer"}, set(payload))
+        self.assertEqual("Looks like Elm", payload["attacker_answer"]["reasoning"])
+        self.assertFalse(backend.requests[0].web_search)
+
+    def test_judge_fails_closed_on_unclear_answer(self):
+        for data in ({"identified": "yes", "matched": ""}, {"matched": ""}):
+            with self.subTest(data=data), self.assertRaises(ModelResponseError):
+                PromptMatchJudge(RecordingBackend(JSONResponse(data))).judge(sample_trace(), AttackReport((), "x"))
 
 
 class OpenAIBackendTests(unittest.TestCase):

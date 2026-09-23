@@ -100,6 +100,18 @@ def pipeline_doubles():
     return inference, anonymizer, RecordingGenerator(), RecordingAttacker()
 
 
+class RecordingJudge:
+    model_id = "judge-test-model"
+
+    def __init__(self, verdicts=(False,)):
+        self.verdicts = list(verdicts)
+        self.calls = []
+
+    def judge(self, original, report):
+        self.calls.append((original, report))
+        return self.verdicts[min(len(self.calls) - 1, len(self.verdicts) - 1)]
+
+
 def run_pipeline(trace=None, ground=None, rounds=1, doubles=None, require_web_search=False):
     inference, anonymizer, generator, attacker = doubles or pipeline_doubles()
     result = synthesize_trace(
@@ -317,6 +329,48 @@ class SynthesizeTraceTests(unittest.TestCase):
         self.assertEqual(["reidentified", "passed_attack"], [a.status for a in result.attempts])
         self.assertEqual(1, len(attacker.calls))
         self.assertNotIn("Original Buyer", repr(anonymizer.calls[-1][2]))
+
+    def test_keyless_judge_sees_original_and_report_and_decides(self):
+        inference, anonymizer, generator, _ = pipeline_doubles()
+        attacker = RecordingAttacker([
+            AttackReport((MatterGuess(identity="Some real deal"),), "JUDGE_FEEDBACK_SENTINEL clue"),
+            AttackReport((), "Nothing found"),
+        ])
+        judge = RecordingJudge([True, False])
+        result = synthesize_trace(simple_trace(), None, 1, 2,
+            inference_model=inference, anonymizer_model=anonymizer, generator=generator,
+            final_attacker=attacker, judge=judge)
+        self.assertTrue(result.succeeded)
+        self.assertEqual(["reidentified", "passed_attack"], [a.status for a in result.attempts])
+        original, report = judge.calls[0]
+        self.assertIn("Original Buyer", repr(original))
+        self.assertEqual("Some real deal", report.guesses[0].identity)
+        # The attacker never sees the original; the attacker's clue feeds the next round.
+        self.assertNotIn("Original Buyer", repr(attacker.calls))
+        self.assertIn("JUDGE_FEEDBACK_SENTINEL", repr(anonymizer.calls[-1][2]))
+
+    def test_keyless_judge_error_or_nonbool_fails_closed(self):
+        class Broken(RecordingJudge):
+            def judge(self, original, report):
+                raise ModelResponseError("provider down")
+        class Maybe(RecordingJudge):
+            def judge(self, original, report):
+                return "no"
+        for judge in (Broken(), Maybe()):
+            with self.subTest(judge=type(judge).__name__):
+                inference, anonymizer, generator, attacker = pipeline_doubles()
+                result = synthesize_trace(simple_trace(), None, 1, 1,
+                    inference_model=inference, anonymizer_model=anonymizer, generator=generator,
+                    final_attacker=attacker, judge=judge)
+                self.assertEqual("model_error", result.reason)
+                self.assertIsNone(result.trace)
+
+    def test_exactly_one_of_ground_or_judge(self):
+        inference, anonymizer, generator, attacker = pipeline_doubles()
+        for ground, judge in ((None, None), (GroundTruth(identities=("X",)), RecordingJudge())):
+            with self.subTest(ground=ground, judge=judge), self.assertRaises(TraceError):
+                synthesize_trace(simple_trace(), ground, 1, 1, inference_model=inference,
+                    anonymizer_model=anonymizer, generator=generator, final_attacker=attacker, judge=judge)
 
     def test_web_search_not_required_by_default(self):
         doubles = list(pipeline_doubles())

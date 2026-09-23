@@ -10,7 +10,7 @@ from dataclasses import replace
 from .matching import matches, mentions_ground, validate_ground
 from .models import (
     DEFAULT_ATTRIBUTES, AnonymizerModel, AttackReport, AttemptSummary, FinalAttacker,
-    GroundTruth, Hint, Inference, InferenceModel, ModelResponseError,
+    GroundTruth, Hint, Inference, InferenceModel, MatchJudge, ModelResponseError,
     SynthesisResult, Trace, TraceError, WorldGenerator, WorldRules,
 )
 from .trace import (
@@ -193,7 +193,7 @@ def _validate_attack(report: AttackReport) -> None:
 
 def synthesize_trace(
     trace: Trace,
-    ground: GroundTruth,
+    ground: GroundTruth | None,
     max_abstraction_rounds: int,
     max_outer_rounds: int,
     *,
@@ -207,8 +207,16 @@ def synthesize_trace(
     candidate_validator: Callable[[Trace], None] | None = None,
     matcher: Callable[[AttackReport, GroundTruth], bool] = matches,
     require_web_search: bool = False,
+    judge: MatchJudge | None = None,
 ) -> SynthesisResult:
     """Abstract locally, instantiate one world, then attack the whole trace.
+
+    Pass exactly one of ``ground`` or ``judge``. With no answer key
+    (``ground=None``), a ``judge`` model compares the attacker's answer with the
+    original trace and decides whether it named the real matter or any real
+    party or person. Only the judge sees the original; the attacker never does.
+    With an answer key, the local matcher decides and also runs a free check
+    for real names left in the finished trace.
 
     GroundTruth is used only by the local matcher. Models receive deep copies
     of their authorized inputs. The caller must supply stateless model clients
@@ -229,7 +237,14 @@ def synthesize_trace(
     targets = _attributes(attributes)
     if not targets:
         raise TraceError("Synthesis requires at least one target attribute")
-    validate_ground(ground)
+    if (ground is None) == (judge is None):
+        raise TraceError("Pass exactly one of ground (an answer key) or judge (no answer key)")
+    if ground is not None:
+        validate_ground(ground)
+    if judge is not None:
+        judge_id = getattr(judge, "model_id", None)
+        if not callable(getattr(judge, "judge", None)) or not isinstance(judge_id, str) or not judge_id.strip():
+            raise TraceError("judge must have a judge() method and a nonempty model_id")
     if tool_validators is not None and not isinstance(tool_validators, Mapping):
         raise TraceError("tool_validators must be a mapping")
     validators = {**DEFAULT_TOOL_VALIDATORS, **(tool_validators or {})}
@@ -293,7 +308,7 @@ def synthesize_trace(
             # A real name left in the finished trace is an immediate fail; the
             # hint does not repeat the name, so ground truth stays out of models.
             stage = "leak_check"
-            if mentions_ground(_payload_texts(candidate), ground):
+            if ground is not None and mentions_ground(_payload_texts(candidate), ground):
                 attempts.append(AttemptSummary(round_number, "reidentified", "real name left in trace"))
                 if LEAK_HINT not in hints:
                     hints += (LEAK_HINT,)
@@ -310,11 +325,17 @@ def synthesize_trace(
                 attempts.append(AttemptSummary(round_number, "invalid_attack", "A completed web-search attack is required"))
                 return SynthesisResult("failed", None, tuple(attempts), "invalid_attack")
 
-            # Ground is not passed to any stage above. Scoring is local only.
+            # Ground is not passed to any stage above. Keyed scoring is local;
+            # keyless scoring asks the judge, the only model shown the original.
             stage = "scoring"
-            identified = matcher(copy.deepcopy(report), ground)
-            if type(identified) is not bool:
-                raise TraceError("Matcher must return a bool")
+            if judge is not None:
+                identified = judge.judge(copy.deepcopy(trace), copy.deepcopy(report))
+                if type(identified) is not bool:
+                    raise ModelResponseError("Judge must return a bool")
+            else:
+                identified = matcher(copy.deepcopy(report), ground)
+                if type(identified) is not bool:
+                    raise TraceError("Matcher must return a bool")
             if not identified:
                 attempts.append(AttemptSummary(round_number, "passed_attack"))
                 return SynthesisResult("passed_attack", candidate, tuple(attempts))

@@ -158,6 +158,22 @@ The synthesis function includes argument validators for the earlier dataset's `s
 
 Sensitive dynamic dictionary keys or sensitive tool names require explicit normalization before synthesis: this implementation preserves those structural fields rather than silently renaming a tool API. Placeholder filling of dictionary keys is supported as a standalone helper, but changing object fields during the synthesis rewrite is rejected.
 
+### No answer key (default in the runner)
+
+Pass `ground=None` and a `judge` instead of writing an answer key:
+
+```python
+from adversarial_traces.adapters import PromptMatchJudge
+
+result = synthesize_trace(trace, None, 2, 3, ..., judge=PromptMatchJudge(backend))
+```
+
+After each attack, the judge model gets the **original** trace and the attacker's answer and decides whether the attacker named the real matter or any real company, person or law firm in it (abbreviations, tickers, misspellings and nicknames count; generic roles like "Merger Sub I" do not). It returns only true or false; its explanation is thrown away, so nothing from the original reaches another model through it. The attacker still never sees the original. An unclear or failed judgement stops the run (`model_error`) rather than passing.
+
+Without a key there is no free check for real names left in the finished trace; such a trace simply reaches the attacker, which reads the name out, and the judge flags it. The example runner uses this mode unless `--ground` is given; the judge defaults to GPT 6 Luna (`--judge-model`).
+
+### With an answer key
+
 ### Matching and failures
 
 The default local matcher fails closed. The attack counts as a re-identification if **any** real party alias or matter identity is mentioned **anywhere** in the attacker's answer: any guess's identity or parties, its reasoning, or its cited spans. One party is enough, so "Microsoft's gaming buyout" matches a key that lists `Microsoft`.

@@ -136,6 +136,17 @@ class FinalAttacker(Protocol):
     def attack(self, trace: Trace, instruction: str) -> AttackReport: ...
 
 
+class MatchJudge(Protocol):
+    """Decides, without an answer key, whether an attack named the real matter.
+
+    The judge is the only model that sees the original trace. Its verdict is a
+    bool; nothing it writes is passed to any other model or returned.
+    """
+    model_id: str
+
+    def judge(self, original: Trace, report: AttackReport) -> bool: ...
+
+
 @dataclass(frozen=True)
 class JSONRequest:
     """A fresh model request. No history or provider conversation ID."""

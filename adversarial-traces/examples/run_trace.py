@@ -21,7 +21,8 @@ from adversarial_traces import (
     synthesize_trace, trace_from_dict, trace_to_source_record,
 )
 from adversarial_traces.adapters import (
-    PromptAnonymizerModel, PromptFinalAttacker, PromptInferenceModel, PromptWorldGenerator,
+    PromptAnonymizerModel, PromptFinalAttacker, PromptInferenceModel, PromptMatchJudge,
+    PromptWorldGenerator,
 )
 from adversarial_traces.matching import validate_ground
 from adversarial_traces.bedrock_backend import BedrockConverseBackend
@@ -169,7 +170,7 @@ def _write_private_output(path, record, *, overwrite):
             os.unlink(temporary)
 
 
-# Defaults: GPT 6 Luna (max reasoning) for stages 1-2, GPT 6 Sol (xhigh) attacks.
+# Defaults: GPT 6 Luna (max reasoning) for stages 1-2 and the judge, GPT 6 Sol (xhigh) attacks.
 LUNA = "global.openai.gpt-6-luna"
 SOL = "global.openai.gpt-6-sol"
 
@@ -181,10 +182,12 @@ def parser():
         "Ground aliases must describe the selected input trace."
     ))
     result.add_argument("input", type=Path, help="Original source_traces.jsonl or canonical JSONL")
-    result.add_argument("--ground", type=Path, required=True, help=(
-        "Private ground aliases JSON; ground.example.json describes Microsoft/Activision only"
+    result.add_argument("--ground", type=Path, help=(
+        "Optional answer key JSON (ground.example.json describes Microsoft/Activision only). "
+        "Without it, a judge model compares the attack with the original trace"
     ))
-    for name, default in (("inference", LUNA), ("anonymizer", LUNA), ("generator", LUNA), ("attacker", SOL)):
+    for name, default in (("inference", LUNA), ("anonymizer", LUNA), ("generator", LUNA),
+                          ("attacker", SOL), ("judge", LUNA)):
         result.add_argument(f"--{name}-model", help=(
             f"Bedrock model ID (default: {default}). With --web-search the attacker needs an "
             "explicit OpenAI model ID"))
@@ -213,7 +216,7 @@ def main(argv=None):
         print("--web-search needs an explicit OpenAI --attacker-model; no API calls made.", file=sys.stderr)
         return 2
     for name, default in (("inference_model", LUNA), ("anonymizer_model", LUNA),
-                          ("generator_model", LUNA), ("attacker_model", SOL)):
+                          ("generator_model", LUNA), ("attacker_model", SOL), ("judge_model", LUNA)):
         if not getattr(args, name):
             setattr(args, name, default)
     selected_index = 0 if args.index is None else args.index
@@ -222,7 +225,7 @@ def main(argv=None):
         return 2
     try:
         output = args.out.absolute()
-        protected = [args.input, args.ground] + ([args.rules] if args.rules else [])
+        protected = [args.input] + [path for path in (args.ground, args.rules) if path]
         if output.resolve() in {path.resolve() for path in protected}:
             print("Output must differ from every input file; nothing written.", file=sys.stderr)
             return 2
@@ -233,7 +236,7 @@ def main(argv=None):
             print("Output already exists; use --overwrite to replace it. No API calls made.", file=sys.stderr)
             return 2
         trace, workflow = _selected_trace(args.input, selected_index, args.trace_id)
-        ground = _ground(args.ground)
+        ground = _ground(args.ground) if args.ground else None
         rules = _rules(args.rules)
         # Construction is lazy: no SDK/client initialization occurs here.
         def bedrock(model):
@@ -248,10 +251,13 @@ def main(argv=None):
         attacker_backend = (OpenAIResponsesBackend(args.attacker_model) if args.web_search
                             else bedrock(args.attacker_model))
         attacker = PromptFinalAttacker(attacker_backend, web_search=args.web_search)
+        # No answer key: the judge (the only model shown the original) scores attacks.
+        judge = None if ground is not None else PromptMatchJudge(bedrock(args.judge_model))
         result = synthesize_trace(trace, ground, args.abstraction_rounds, args.outer_rounds,
             inference_model=inference, anonymizer_model=anonymizer,
             generator=generator, final_attacker=attacker, rules=rules,
-            tool_validators=DEFAULT_TOOL_VALIDATORS, require_web_search=args.web_search)
+            tool_validators=DEFAULT_TOOL_VALIDATORS, require_web_search=args.web_search,
+            judge=judge)
     except (OSError, UnicodeError, ValueError, TypeError, RecursionError):
         # Input or provider text may be present in exception strings. Keep all
         # such text out of stderr and do not persist failed inputs/feedback.
