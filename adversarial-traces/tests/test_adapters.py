@@ -196,6 +196,9 @@ class AdapterTests(unittest.TestCase):
         data = {"inferences": [{**inference_data()["inferences"][0], "value": ["Elm", "Oak"]}]}
         result = PromptInferenceModel(RecordingBackend(JSONResponse(data))).infer("Elm", ("parties",))
         self.assertEqual("Elm; Oak", result[0].value)
+        labelled = {"inferences": [{**inference_data()["inferences"][0], "value": {"signing": "2022", "closing": None}}]}
+        result = PromptInferenceModel(RecordingBackend(JSONResponse(labelled))).infer("Elm", ("parties",))
+        self.assertEqual("signing: 2022", result[0].value)
         nested = {"inferences": [{**inference_data()["inferences"][0], "value": [["Elm"]]}]}
         with self.assertRaises(ModelResponseError):
             PromptInferenceModel(RecordingBackend(JSONResponse(nested))).infer("Elm", ("parties",))

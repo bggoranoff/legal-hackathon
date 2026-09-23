@@ -94,14 +94,18 @@ def _scalar(value: Any) -> str | int | float | bool | None:
 
 
 def _inference_value(value: Any) -> str | int | float | bool | None:
-    """A scalar, or a list of scalars joined with "; " (e.g. several parties).
+    """A scalar, or a list/object of scalars flattened into one "; "-joined guess.
 
-    Some providers don't enforce the schema and return lists for multi-valued
-    attributes; the guess is still useful, so it is kept.
+    Some providers don't enforce the schema and return lists (several parties)
+    or labelled objects (several dates); the guess is still useful, so it is
+    kept. Only one level of nesting is accepted.
     """
     if type(value) is list:
-        items = [_scalar(item) for item in value]
-        return "; ".join(str(item) for item in items if item is not None and item != "") or None
+        parts = [str(_scalar(item)) for item in value if item is not None and item != ""]
+        return "; ".join(parts) or None
+    if type(value) is dict:
+        parts = [f"{key}: {_scalar(item)}" for key, item in value.items() if item is not None and item != ""]
+        return "; ".join(parts) or None
     return _scalar(value)
 
 
