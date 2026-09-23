@@ -65,7 +65,6 @@ class AdapterTests(unittest.TestCase):
             {"inferences": [{**inference_data()["inferences"][0], "certainty": True}]},
             {"inferences": [{**inference_data()["inferences"][0], "certainty": float("nan")}]},
             {"inferences": [{**inference_data()["inferences"][0], "attribute": "occupation"}]},
-            {"inferences": [{**inference_data()["inferences"][0], "unexpected": True}]},
         ]
         for data in malformed:
             with self.subTest(data=data), self.assertRaises(ModelResponseError):
@@ -101,12 +100,25 @@ class AdapterTests(unittest.TestCase):
         self.assertNotIn("text", request.payload)
         self.assertIn("preserve all object keys", request.system)
         with self.assertRaises(ModelResponseError):
-            PromptAnonymizerModel(RecordingBackend(JSONResponse({"json": {}, "text": "x"}))).anonymize(text, ())
+            PromptAnonymizerModel(RecordingBackend(JSONResponse({"text": "x"}))).anonymize(text, ())
 
-    def test_anonymizer_rejects_extra_fields_and_nontext(self):
-        for data in ({"text": 4}, {"text": "ok", "identity": "leak"}):
+    def test_anonymizer_rejects_nontext_and_drops_echoed_fields(self):
+        for data in ({"text": 4}, {"identity": "leak"}):
             with self.subTest(data=data), self.assertRaises(ModelResponseError):
                 PromptAnonymizerModel(RecordingBackend(JSONResponse(data))).anonymize("Elm", ())
+        echoed = {"text": "ok", "inferences": [], "hints": [], "identity": "unused"}
+        self.assertEqual("ok", PromptAnonymizerModel(RecordingBackend(JSONResponse(echoed))).anonymize("Elm", ()))
+
+    def test_findings_that_only_point_at_placeholders_are_dropped(self):
+        item = inference_data()["inferences"][0]
+        data = {"inferences": [
+            {**item, "value": "{{BUYER}}; {{TARGET}}", "spans": []},
+            {**item, "value": "Buyer and target", "spans": ["{{BUYER}}_{{TARGET}}_{{YEAR}}"]},
+            {**item, "value": "Elm", "spans": ["Elm"]},
+        ]}
+        text = "Elm {{BUYER}}_{{TARGET}}_{{YEAR}}"
+        result = PromptInferenceModel(RecordingBackend(JSONResponse(data))).infer(text, ("parties",))
+        self.assertEqual(["Elm"], [inference.value for inference in result])
 
     def test_generator_gets_abstract_profile_and_rules_only(self):
         profile = profile_trace(sample_trace("{{BUYER}} buys {{TARGET}} for {{PRICE}}."))

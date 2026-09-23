@@ -48,10 +48,23 @@ def _valid_json(value: Any) -> None:
     raise ModelResponseError("Response contains a non-JSON or non-finite value")
 
 
-def _object(value: Any, keys: set[str], label: str) -> dict[str, Any]:
-    if type(value) is not dict or set(value) != keys:
+def _object(value: Any, keys: set[str], label: str, *, extra_ok: bool = False) -> dict[str, Any]:
+    """Require exactly ``keys``, or with ``extra_ok`` at least ``keys``.
+
+    Some providers don't enforce the schema and echo input fields back. With
+    ``extra_ok`` those extras are dropped and never used.
+    """
+    if type(value) is not dict or not keys <= set(value) or (not extra_ok and set(value) != keys):
         raise ModelResponseError(f"Invalid fields in {label}")
-    return value
+    return {key: value[key] for key in keys}
+
+
+_PLACEHOLDER_ONLY = re.compile(r"(?:\s|[^\w{}]|_|\{\{[A-Z][A-Z0-9_]*\}\})*")
+
+
+def _only_placeholders(value: str) -> bool:
+    """True for text made only of placeholders and punctuation, e.g. "{{BUYER}}_{{YEAR}}"."""
+    return "{{" in value and _PLACEHOLDER_ONLY.fullmatch(value) is not None
 
 
 def _string(value: Any, label: str, *, nonempty: bool = False) -> str:
@@ -148,19 +161,25 @@ class PromptInferenceModel:
             schema=_object_schema({"inferences": {"type": "array", "items": item_schema}}),
             schema_name="attribute_inferences",
         )
-        data = _object(_complete(self.backend, request).data, {"inferences"}, "inference response")
+        data = _object(_complete(self.backend, request).data, {"inferences"}, "inference response", extra_ok=True)
         if type(data["inferences"]) is not list:
             raise ModelResponseError("Inferences must be a list")
         result = []
         for item in data["inferences"]:
-            item = _object(item, {"attribute", "value", "reasoning", "certainty", "spans"}, "inference")
+            item = _object(item, {"attribute", "value", "reasoning", "certainty", "spans"}, "inference", extra_ok=True)
             attribute = _string(item["attribute"], "attribute", nonempty=True)
             if attribute not in attributes:
                 raise ModelResponseError("Inference returned an unrequested attribute")
             # Quotes are only hints. Models often misquote long text (line breaks,
             # quote marks), so drop quotes that don't appear rather than failing.
             spans = tuple(span for span in _strings(item["spans"], "inference spans") if span in text)
-            result.append(Inference(attribute, _inference_value(item["value"]),
+            value = _inference_value(item["value"])
+            # A "finding" that only points at placeholders is already abstracted.
+            if spans and all(_only_placeholders(span) for span in spans):
+                continue
+            if isinstance(value, str) and _only_placeholders(value):
+                continue
+            result.append(Inference(attribute, value,
                                     _string(item["reasoning"], "reasoning"),
                                     _certainty(item["certainty"]), spans))
         return tuple(result)
@@ -220,11 +239,11 @@ class PromptAnonymizerModel:
             schema_name="abstracted_text",
         )
         if as_json:
-            data = _object(_complete(self.backend, request).data, {"json"}, "anonymization response")
+            data = _object(_complete(self.backend, request).data, {"json"}, "anonymization response", extra_ok=True)
             if type(data["json"]) is not dict:
                 raise ModelResponseError("Rewritten JSON must be an object")
             return json.dumps(data["json"], ensure_ascii=False, allow_nan=False)
-        data = _object(_complete(self.backend, request).data, {"text"}, "anonymization response")
+        data = _object(_complete(self.backend, request).data, {"text"}, "anonymization response", extra_ok=True)
         return _string(data["text"], "rewritten text")
 
 
@@ -260,12 +279,12 @@ class PromptWorldGenerator:
             })}}),
             schema_name="synthetic_world",
         )
-        data = _object(_complete(self.backend, request).data, {"bindings"}, "world response")
+        data = _object(_complete(self.backend, request).data, {"bindings"}, "world response", extra_ok=True)
         if type(data["bindings"]) is not list:
             raise ModelResponseError("Bindings must be a list")
         bindings = {}
         for item in data["bindings"]:
-            item = _object(item, {"key", "value"}, "binding")
+            item = _object(item, {"key", "value"}, "binding", extra_ok=True)
             key = _string(item["key"], "binding key", nonempty=True)
             if not re.fullmatch(r"[A-Z][A-Z0-9_]*", key) or key in bindings:
                 raise ModelResponseError("Binding keys must be unique uppercase placeholder names")
