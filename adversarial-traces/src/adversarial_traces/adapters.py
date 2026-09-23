@@ -144,9 +144,9 @@ class PromptInferenceModel:
             attribute = _string(item["attribute"], "attribute", nonempty=True)
             if attribute not in attributes:
                 raise ModelResponseError("Inference returned an unrequested attribute")
-            spans = _strings(item["spans"], "inference spans")
-            if any(span not in text for span in spans):
-                raise ModelResponseError("Inference evidence is not in the current text")
+            # Quotes are only hints. Models often misquote long text (line breaks,
+            # quote marks), so drop quotes that don't appear rather than failing.
+            spans = tuple(span for span in _strings(item["spans"], "inference spans") if span in text)
             result.append(Inference(attribute, _scalar(item["value"]),
                                     _string(item["reasoning"], "reasoning"),
                                     _certainty(item["certainty"]), spans))
@@ -321,7 +321,7 @@ class PromptFinalAttacker:
             else:
                 yield str(value)
         texts = tuple(leaves(trace_to_dict(trace)))
-        if any(not any(span in text for text in texts) for span in spans):
-            raise ModelResponseError("Attack evidence is not in the current trace")
+        # Keep only quotes that really appear; misquotes are dropped, not fatal.
+        spans = tuple(span for span in spans if any(span in text for text in texts))
         return AttackReport(tuple(guesses), _string(data["reasoning"], "attack reasoning"),
                             spans, web_search_used=response.web_search_used, completed=True)

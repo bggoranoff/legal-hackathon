@@ -65,7 +65,6 @@ class AdapterTests(unittest.TestCase):
             {"inferences": [{**inference_data()["inferences"][0], "certainty": True}]},
             {"inferences": [{**inference_data()["inferences"][0], "certainty": float("nan")}]},
             {"inferences": [{**inference_data()["inferences"][0], "attribute": "occupation"}]},
-            {"inferences": [{**inference_data()["inferences"][0], "spans": ["invented evidence"]}]},
             {"inferences": [{**inference_data()["inferences"][0], "unexpected": True}]},
         ]
         for data in malformed:
@@ -156,10 +155,17 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(set(backend.requests[0].payload), {"trace", "instruction"})
         self.assertTrue(backend.requests[0].web_search)
 
-    def test_final_attacker_rejects_malformed_guess_or_fabricated_span(self):
+    def test_misquoted_evidence_is_dropped_not_fatal(self):
+        data = {"inferences": [{**inference_data()["inferences"][0], "spans": ["Elm", "invented evidence"]}]}
+        result = PromptInferenceModel(RecordingBackend(JSONResponse(data))).infer("Elm", ("parties",))
+        self.assertEqual(("Elm",), result[0].spans)
+        report = PromptFinalAttacker(RecordingBackend(JSONResponse(
+            {**attack_data(), "spans": ["not present in trace"]}))).attack(sample_trace(), "Identify")
+        self.assertEqual((), report.spans)
+
+    def test_final_attacker_rejects_malformed_guess(self):
         cases = [
             {**attack_data(), "guesses": [{"identity": None, "parties": [], "certainty": 0.1}]},
-            {**attack_data(), "spans": ["not present in trace"]},
             {**attack_data(), "web_search_used": True},
         ]
         for data in cases:
