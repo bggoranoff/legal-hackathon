@@ -26,9 +26,9 @@ _MODES = ("tool", "text")
 # Reasoning levels accepted by OpenAI reasoning models on Bedrock (e.g. GPT 6 Luna).
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 # Reasoning levels used unless told otherwise: max for GPT 6 Luna (stages 1-2),
-# xhigh for GPT 6 Sol (the attacker). Other models get no reasoning setting
+# high for GPT 6 Sol (the attacker). Other models get no reasoning setting
 # by default (Claude on Bedrock rejects it).
-DEFAULT_REASONING = {"gpt-6-luna": "max", "gpt-6-sol": "xhigh"}
+DEFAULT_REASONING = {"gpt-6-luna": "max", "gpt-6-sol": "high"}
 _AUTO = "auto"
 
 
@@ -113,7 +113,7 @@ class BedrockConverseBackend:
         self.max_output_tokens = max_output_tokens
         self.timeout = timeout
         self.structured = structured
-        # By default: max for GPT 6 Luna, xhigh for GPT 6 Sol, unset for others. None leaves the
+        # By default: max for GPT 6 Luna, high for GPT 6 Sol, unset for others. None leaves the
         # model's own default. Only OpenAI-style reasoning models accept a level.
         self.reasoning_effort = reasoning_effort
 

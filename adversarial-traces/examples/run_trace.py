@@ -170,7 +170,7 @@ def _write_private_output(path, record, *, overwrite):
             os.unlink(temporary)
 
 
-# Defaults: GPT 6 Luna (max reasoning) for stages 1-2 and the judge, GPT 6 Sol (xhigh) attacks.
+# Defaults: GPT 6 Luna (max reasoning) for stages 1-2 and the judge, GPT 6 Sol (high) attacks.
 LUNA = "global.openai.gpt-6-luna"
 SOL = "global.openai.gpt-6-sol"
 
@@ -205,7 +205,7 @@ def parser():
     result.add_argument("--region", help="Bedrock region; defaults to AWS_REGION, then us-east-1")
     result.add_argument("--reasoning-effort", choices=("none", "low", "medium", "high", "xhigh", "max"),
         help=("Reasoning level for the generator, attacker and judge "
-              "(default: max for GPT 6 Luna, xhigh for GPT 6 Sol, unset for others)"))
+              "(default: max for GPT 6 Luna, high for GPT 6 Sol, unset for others)"))
     result.add_argument("--stage1-reasoning", choices=("none", "low", "medium", "high", "xhigh", "max"),
         default="high", help=("Reasoning level for the stage 1 finder and rewriter, which make most of the "
                               "calls (default: high; ignored for models without a reasoning setting)"))
@@ -247,7 +247,7 @@ def main(argv=None):
         # Construction is lazy: no SDK/client initialization occurs here.
         def bedrock(model, effort=None):
             # Without an explicit level the backend default applies (max for
-            # GPT 6 Luna, xhigh for GPT 6 Sol, none for models without one).
+            # GPT 6 Luna, high for GPT 6 Sol, none for models without one).
             effort = effort or args.reasoning_effort
             if effort and default_reasoning_effort(model) is None:
                 effort = None  # e.g. Claude on Bedrock rejects a reasoning level

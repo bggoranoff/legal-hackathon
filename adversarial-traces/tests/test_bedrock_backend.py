@@ -106,7 +106,7 @@ class BedrockBackendTests(unittest.TestCase):
         self.assertNotIn("additionalModelRequestFields", fake.calls[0])
         fake = FakeBedrock(tool_response({"x": 1}))
         BedrockConverseBackend("global.openai.gpt-6-sol", client=fake).complete(request())
-        self.assertEqual({"reasoning": {"effort": "xhigh"}}, fake.calls[0]["additionalModelRequestFields"])
+        self.assertEqual({"reasoning": {"effort": "high"}}, fake.calls[0]["additionalModelRequestFields"])
         fake = FakeBedrock(tool_response({"x": 1}))
         BedrockConverseBackend("global.anthropic.claude-opus-4-5-20251101-v1:0", client=fake).complete(request())
         self.assertNotIn("additionalModelRequestFields", fake.calls[0])
