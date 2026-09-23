@@ -1,0 +1,251 @@
+:root {
+  --line: #000;
+  --muted: #666;
+  --pane-h: 264px; /* ~6 list rows; both columns lock to this height */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #fff;
+  color: #000;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 2px;
+}
+
+.tagline {
+  color: var(--muted);
+  margin: 0 0 24px;
+}
+
+h2 {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 8px;
+}
+
+.section {
+  margin-bottom: 32px;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+button {
+  font: inherit;
+  background: #fff;
+  color: #000;
+  border: 1px solid var(--line);
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #000;
+  color: #fff;
+}
+
+button:disabled {
+  color: var(--muted);
+  border-color: var(--muted);
+  cursor: default;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+ul.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  max-height: var(--pane-h);
+  overflow-y: auto;
+}
+
+ul.list li {
+  border-bottom: 1px solid var(--line);
+}
+
+ul.list li:last-child {
+  border-bottom: none;
+}
+
+ul.list button.row {
+  width: 100%;
+  text-align: left;
+  border: none;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+ul.list button.row.active {
+  background: #000;
+  color: #fff;
+}
+
+.row-id {
+  font-weight: 700;
+}
+
+.row-matter {
+  color: var(--muted);
+}
+
+.row.active .row-matter {
+  color: #ccc;
+}
+
+.trace {
+  border: 1px solid var(--line);
+  padding: 16px;
+}
+
+.columns > .trace,
+.columns > .empty {
+  height: var(--pane-h);
+  overflow-y: auto;
+}
+
+.trace-title {
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.step {
+  border-top: 1px dashed var(--line);
+  padding: 10px 0;
+}
+
+.step:first-of-type {
+  border-top: none;
+}
+
+.step-head {
+  font-weight: 700;
+}
+
+.step-detail {
+  margin-top: 2px;
+  white-space: pre-wrap;
+}
+
+.empty {
+  color: var(--muted);
+  border: 1px dashed var(--muted);
+  padding: 16px;
+}
+
+.verify-pane {
+  height: 120px;
+}
+
+.verify-pane .empty {
+  height: 100%;
+}
+
+.score {
+  border: 2px solid var(--line);
+  padding: 16px;
+  font-size: 16px;
+  height: 100%;
+}
+
+.score .num {
+  font-size: 40px;
+  font-weight: 700;
+}
+
+.num.good {
+  color: #157f3c;
+}
+
+.num.warn {
+  color: #b26a00;
+}
+
+.num.bad {
+  color: #c62222;
+}
+
+button.btn-redact {
+  background: #f28c28;
+  color: #000;
+  border-color: #000;
+}
+
+button.btn-synthetic {
+  background: #2f6fed;
+  color: #fff;
+  border-color: #000;
+}
+
+button.btn-reconstruct {
+  background: #2e9e4f;
+  color: #fff;
+  border-color: #000;
+}
+
+button.btn-verify {
+  background: #7b3fe4;
+  color: #fff;
+  border-color: #000;
+}
+
+button.btn-redact:hover:not(:disabled),
+button.btn-synthetic:hover:not(:disabled),
+button.btn-reconstruct:hover:not(:disabled),
+button.btn-verify:hover:not(:disabled) {
+  background: #000;
+  color: #fff;
+}
+
+button.btn-reconstruct:disabled,
+button.btn-verify:disabled {
+  background: #fff;
+  color: var(--muted);
+  border-color: var(--muted);
+}
+
+.label {
+  display: inline-block;
+  border: 1px solid var(--line);
+  padding: 1px 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  margin-left: 8px;
+}
