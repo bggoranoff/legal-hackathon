@@ -256,7 +256,15 @@ Stage 1 rewrites up to 8 steps at once (`parallel_steps=` in `synthesize_trace`,
 
 Add `--web-search` to run the attacker on OpenAI with web search (then `--attacker-model` is an OpenAI model ID). Use `--region` to pick a Bedrock region and `--bedrock-structured text` for models without forced tool calls.
 
-The runner writes only a passing synthetic trace, as one line in the `source_traces.jsonl` format. It exits without writing a candidate on failure and refuses to overwrite an existing output unless requested. Optional `--rules rules.json` accepts the `WorldRules` fields in JSON form.
+To convert several traces at once, repeat `--trace-id` (or use `--first N`); they run in parallel (`--parallel-traces`, default: all selected, up to 4):
+
+```bash
+python examples/run_trace.py ../backend/data/source_traces.jsonl \
+  --trace-id adobe_figma_2022_t02 --trace-id renesas_transphorm_2024_t03 \
+  --out local_results/synthetic.jsonl
+```
+
+Each trace prints a one-line result as it finishes; one failing trace doesn't stop the others. The runner writes only the synthetic traces that pass, one per line in the `source_traces.jsonl` format, in the order selected, and exits 0 only if all passed. An answer key (`--ground`) describes one trace, so it can't be combined with several. It exits without writing a candidate on failure and refuses to overwrite an existing output unless requested. Optional `--rules rules.json` accepts the `WorldRules` fields in JSON form.
 
 For N segments, the maximum per candidate is approximately `2 * N * K_abs + 2` model requests: local inference and rewriting, one world generation and one final attack. Early stopping reduces this. Web-search tool work is additional. Model/context limits may require choosing smaller trace segments; this implementation does not silently truncate inputs.
 

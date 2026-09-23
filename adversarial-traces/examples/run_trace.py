@@ -1,4 +1,4 @@
-"""Explicit, opt-in API runner for one selected JSONL trace.
+"""Explicit, opt-in API runner for one or more selected JSONL traces, converted in parallel.
 
 Ground aliases are private scoring inputs, never a model argument. Only a
 candidate that passes the configured attack is written. This does not establish
@@ -15,6 +15,8 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 from adversarial_traces import (
     DEFAULT_TOOL_VALIDATORS, GroundTruth, WorldRules,
@@ -132,33 +134,42 @@ def _workflow(record):
     return workflow if isinstance(workflow, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", workflow) else None
 
 
-def _selected_trace(path, index, trace_id):
-    record_index = 0
+def _selected_traces(path, indexes, trace_ids, first):
+    """Return [(source trace_id, Trace, workflow)] in the order requested."""
+    records = []
     with path.open(encoding="utf-8") as source:
         for line in source:
-            if not line.strip():
-                continue
-            if trace_id is not None:
+            if line.strip():
                 record = _json(line)
                 if type(record) is not dict:
                     raise ValueError("JSONL records must be objects")
-                if record.get("trace_id") == trace_id:
-                    return trace_from_dict(record), _workflow(record)
-            elif record_index == index:
-                record = _json(line)
-                return trace_from_dict(record), _workflow(record)
-            record_index += 1
-    raise ValueError("Selected record does not exist")
+                records.append(record)
+    if trace_ids:
+        by_id = {record.get("trace_id"): record for record in records}
+        if any(trace_id not in by_id for trace_id in trace_ids):
+            raise ValueError("Selected record does not exist")
+        chosen = [by_id[trace_id] for trace_id in trace_ids]
+    elif first:
+        chosen = records[:first]
+    else:
+        if any(index >= len(records) for index in indexes):
+            raise ValueError("Selected record does not exist")
+        chosen = [records[index] for index in indexes]
+    if not chosen:
+        raise ValueError("No records selected")
+    return [(str(record.get("trace_id", i)), trace_from_dict(record), _workflow(record))
+            for i, record in enumerate(chosen)]
 
 
-def _write_private_output(path, record, *, overwrite):
+def _write_private_output(path, records, *, overwrite):
     # Build a complete file before publishing it. Exclusive hard-link creation
     # prevents a race from silently overwriting a file created during API calls.
     fd, temporary = tempfile.mkstemp(prefix=".synthetic-trace-", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as target:
-            json.dump(record, target, ensure_ascii=False, allow_nan=False)
-            target.write("\n")
+            for record in records:
+                json.dump(record, target, ensure_ascii=False, allow_nan=False)
+                target.write("\n")
             target.flush()
             os.fsync(target.fileno())
         if overwrite:
@@ -196,9 +207,16 @@ def parser():
         help="Most full attack rounds before giving up (default: 5)")
     result.add_argument("--rules", type=Path, help="Optional JSON object with WorldRules fields")
     selector = result.add_mutually_exclusive_group()
-    selector.add_argument("--index", type=int, help="Zero-based nonempty JSONL record index; default 0")
-    selector.add_argument("--trace-id", help="Exact trace_id in the input, before import neutralizes IDs")
-    result.add_argument("--out", type=Path, required=True, help="One successful synthetic trace, as a JSONL line in the source_traces.jsonl format")
+    selector.add_argument("--index", type=int, action="append", help=(
+        "Zero-based nonempty JSONL record index; repeat for several (default: 0)"))
+    selector.add_argument("--trace-id", action="append", help=(
+        "Exact trace_id in the input; repeat for several traces"))
+    selector.add_argument("--first", type=int, help="Convert the first N traces in the input")
+    result.add_argument("--parallel-traces", type=int, help=(
+        "How many traces to convert at once (default: all selected, up to 4)"))
+    result.add_argument("--out", type=Path, required=True, help=(
+        "JSONL file for the synthetic traces that pass, one per line, in the source_traces.jsonl "
+        "format and in the order selected"))
     result.add_argument("--overwrite", action="store_true", help="Explicitly replace an existing output")
     result.add_argument("--web-search", action="store_true", help=(
         "Run the final attacker on OpenAI with web search (off by default; needs OPENAI_API_KEY)"))
@@ -225,9 +243,11 @@ def main(argv=None):
                           ("generator_model", LUNA), ("attacker_model", SOL), ("judge_model", LUNA)):
         if not getattr(args, name):
             setattr(args, name, default)
-    selected_index = 0 if args.index is None else args.index
-    if selected_index < 0 or args.abstraction_rounds < 1 or args.outer_rounds < 0 or args.parallel_steps < 1:
-        print("Invalid index or round budget; no API calls made.", file=sys.stderr)
+    indexes = args.index or [0]
+    if (any(index < 0 for index in indexes) or (args.first is not None and args.first < 1)
+            or args.abstraction_rounds < 1 or args.outer_rounds < 0 or args.parallel_steps < 1
+            or (args.parallel_traces is not None and args.parallel_traces < 1)):
+        print("Invalid selection, round budget or parallelism; no API calls made.", file=sys.stderr)
         return 2
     try:
         output = args.out.absolute()
@@ -241,8 +261,12 @@ def main(argv=None):
         if os.path.lexists(output) and not args.overwrite:
             print("Output already exists; use --overwrite to replace it. No API calls made.", file=sys.stderr)
             return 2
-        trace, workflow = _selected_trace(args.input, selected_index, args.trace_id)
+        selected = _selected_traces(args.input, indexes, args.trace_id, args.first)
         ground = _ground(args.ground) if args.ground else None
+        if ground is not None and len(selected) > 1:
+            print("An answer key (--ground) describes one trace; select one trace or drop --ground.",
+                  file=sys.stderr)
+            return 2
         rules = _rules(args.rules)
         # Construction is lazy: no SDK/client initialization occurs here.
         def bedrock(model, effort=None):
@@ -264,11 +288,32 @@ def main(argv=None):
         attacker = PromptFinalAttacker(attacker_backend, web_search=args.web_search)
         # No answer key: the judge (the only model shown the original) scores attacks.
         judge = None if ground is not None else PromptMatchJudge(bedrock(args.judge_model))
-        result = synthesize_trace(trace, ground, args.abstraction_rounds, args.outer_rounds,
-            inference_model=inference, anonymizer_model=anonymizer,
-            generator=generator, final_attacker=attacker, rules=rules,
-            tool_validators=DEFAULT_TOOL_VALIDATORS, require_web_search=args.web_search,
-            judge=judge, parallel_steps=args.parallel_steps)
+        # Model clients are shared: they are stateless and safe across threads.
+        def convert(item):
+            label, trace, workflow = item
+            started = time.monotonic()
+            try:
+                result = synthesize_trace(trace, ground, args.abstraction_rounds, args.outer_rounds,
+                    inference_model=inference, anonymizer_model=anonymizer,
+                    generator=generator, final_attacker=attacker, rules=rules,
+                    tool_validators=DEFAULT_TOOL_VALIDATORS, require_web_search=args.web_search,
+                    judge=judge, parallel_steps=args.parallel_steps)
+            except (ValueError, TypeError, RecursionError):
+                # Exception text may include trace content; report the kind only.
+                summary = {"trace": label, "status": "error", "reason": "invalid input or configuration"}
+                print(json.dumps(summary), file=sys.stderr, flush=True)
+                return None
+            summary = {"trace": label, "status": result.status, "reason": result.reason,
+                       "rounds": len(result.attempts), "seconds": round(time.monotonic() - started),
+                       "attempts": [asdict(item) for item in result.attempts]}
+            print(json.dumps(summary), file=sys.stderr, flush=True)
+            if not result.succeeded or result.trace is None:
+                return None
+            return trace_to_source_record(result.trace, workflow=workflow)
+
+        workers = min(args.parallel_traces or min(len(selected), 4), len(selected))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            records = list(pool.map(convert, selected))
     except (OSError, UnicodeError, ValueError, TypeError, RecursionError):
         # Input or provider text may be present in exception strings. Keep all
         # such text out of stderr and do not persist failed inputs/feedback.
@@ -277,17 +322,16 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("Interrupted; no output written.", file=sys.stderr)
         return 130
-    print(json.dumps({"status": result.status, "reason": result.reason,
-                      "attempts": [asdict(item) for item in result.attempts]}), file=sys.stderr)
-    if not result.succeeded or result.trace is None:
+    passed = [record for record in records if record is not None]
+    print(json.dumps({"passed": len(passed), "selected": len(selected)}), file=sys.stderr)
+    if not passed:
         return 1
     try:
-        _write_private_output(output, trace_to_source_record(result.trace, workflow=workflow),
-                              overwrite=args.overwrite)
+        _write_private_output(output, passed, overwrite=args.overwrite)
     except (OSError, UnicodeError, ValueError):
         print("Could not publish output; existing output was not intentionally removed.", file=sys.stderr)
         return 2
-    return 0
+    return 0 if len(passed) == len(selected) else 1
 
 
 if __name__ == "__main__":
