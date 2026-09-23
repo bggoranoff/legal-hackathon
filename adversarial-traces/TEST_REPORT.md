@@ -1,8 +1,8 @@
 # Verification report
 
-- Python: 3.12.14.
+- Python: 3.12.14 (rechecked on 3.11.15 after making web search optional: 82 tests passed).
 - 79 tests passed against the source package.
-- The same 79 tests passed against the built and separately installed wheel.
+- The same 79 tests passed against the built and separately installed wheel (the wheel is not checked in; rebuild it with the command below).
 - The optional dataset integration test imported and validated all 100 prior source traces.
 - The offline example completed two scripted outer rounds: reidentified, then passed_attack; one world was generated per candidate.
 - The real-runner command was checked without model calls, including zero-budget failure, mocked success/failure, trace-ID selection, output refusal/overwrite and private file permissions.

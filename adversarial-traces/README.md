@@ -3,7 +3,7 @@
 A Python package implementing the two supplied algorithms:
 
 - **`adversarial_anonymize`**: infer attributes from the current text, then rewrite using those inferences, for at most K rounds.
-- **`synthesize_trace`**: abstract each segment, generate one invented world, fill it consistently across the trace, and ask a separate web-searching attacker to identify the original matter.
+- **`synthesize_trace`**: abstract each segment, generate one invented world, fill it consistently across the trace, and ask a separate attacker model to identify the original matter. Web search for that attacker is off by default.
 
 The core has no runtime dependencies. Model roles are pluggable Python protocols; an optional OpenAI Responses backend and structured prompt adapters are included. This is a new implementation of the supplied pseudocode, not a fork of the paper's code or a reproduction of its experiments.
 
@@ -163,16 +163,27 @@ Use an answer key for the selected trace, including likely buyer/target aliases.
 
 | Result | Meaning |
 | --- | --- |
-| `passed_attack` | A completed web-search attack did not match the supplied ground truth; `trace` contains the candidate |
+| `passed_attack` | A completed attack did not match the supplied ground truth; `trace` contains the candidate |
 | `failed`, `reidentified` | The attacker kept identifying the original within the allowed rounds |
 | `failed`, `invalid_candidate` | Rewriting, filling, or coherence failed validation within the allowed rounds |
-| `failed`, `invalid_attack` | The final attack did not complete or could not confirm web search |
+| `failed`, `invalid_attack` | The final attack did not complete, or web search was required but not confirmed |
 | `failed`, `model_error` | A provider or structured-response failure prevented evaluation |
 | `failed`, `budget_exhausted` | No outer rounds were allowed |
 
 Invalid input/configuration raises `TraceError`. Unexpected exceptions in custom code propagate; they are not interpreted as privacy success. Provider failures, refusals and truncated JSON are never converted to empty guesses. Rejected traces, attacker reasoning, private hints and answer keys are not returned in `SynthesisResult`. Attempt summaries contain only round numbers and sanitized statuses.
 
-Synthesis requires a positive abstraction budget and a final attacker whose declared model ID differs from local inference. Its strength is a caller choice. A custom final attacker must honestly report completed web-search execution; the included provider backend derives that flag from actual completed search output, not from model-written JSON.
+Synthesis requires a positive abstraction budget and a final attacker whose declared model ID differs from local inference. Its strength is a caller choice.
+
+### Web search (off by default)
+
+By default the final attacker works only from the trace and its own knowledge. To let it search the web, turn it on in both places:
+
+```python
+final_attacker = PromptFinalAttacker(backend, web_search=True)
+result = synthesize_trace(..., final_attacker=final_attacker, require_web_search=True)
+```
+
+With `require_web_search=True`, an attack without a confirmed completed search fails as `invalid_attack`. A custom final attacker must honestly report completed web-search execution; the included provider backend derives that flag from actual completed search output, not from model-written JSON. The example runner takes `--web-search` for the same thing.
 
 ## Use the optional API adapter
 
@@ -189,7 +200,7 @@ generator = PromptWorldGenerator(OpenAIResponsesBackend(generator_model_name))
 final_attacker = PromptFinalAttacker(OpenAIResponsesBackend(attacker_model_name))
 ```
 
-Choose model IDs supported by your account: all need structured outputs and the final model needs web search. There are no hidden model defaults or automatic paid calls during import/tests. The adapter makes a fresh Responses request per call, uses `store=False`, passes no conversation or prior-response ID, and disables SDK retries for clients it creates. `store=False` does not itself promise provider zero retention.
+Choose model IDs supported by your account: all need structured outputs, and the final model needs web search only if you turn it on. There are no hidden model defaults or automatic paid calls during import/tests. The adapter makes a fresh Responses request per call, uses `store=False`, passes no conversation or prior-response ID, and disables SDK retries for clients it creates. `store=False` does not itself promise provider zero retention.
 
 To use the previous 100-trace dataset, extract its archive, configure `OPENAI_API_KEY` locally, and execute the runner explicitly:
 

@@ -163,7 +163,7 @@ def _write_private_output(path, record, *, overwrite):
 
 def parser():
     result = argparse.ArgumentParser(description=(
-        "Run real model/API calls for one trace; the final attacker uses web search. "
+        "Run real model/API calls for one trace; the final attacker uses web search only with --web-search. "
         "Ground aliases must describe the selected input trace."
     ))
     result.add_argument("input", type=Path, help="Original source_traces.jsonl or canonical JSONL")
@@ -180,6 +180,7 @@ def parser():
     selector.add_argument("--trace-id", help="Exact trace_id in the input, before import neutralizes IDs")
     result.add_argument("--out", type=Path, required=True, help="One successful synthetic trace as JSONL")
     result.add_argument("--overwrite", action="store_true", help="Explicitly replace an existing output")
+    result.add_argument("--web-search", action="store_true", help="Let the final attacker use web search (off by default)")
     return result
 
 
@@ -208,11 +209,12 @@ def main(argv=None):
         inference = PromptInferenceModel(OpenAIResponsesBackend(args.inference_model))
         anonymizer = PromptAnonymizerModel(OpenAIResponsesBackend(args.anonymizer_model))
         generator = PromptWorldGenerator(OpenAIResponsesBackend(args.generator_model))
-        attacker = PromptFinalAttacker(OpenAIResponsesBackend(args.attacker_model))
+        attacker = PromptFinalAttacker(OpenAIResponsesBackend(args.attacker_model),
+                                       web_search=args.web_search)
         result = synthesize_trace(trace, ground, args.abstraction_rounds, args.outer_rounds,
             inference_model=inference, anonymizer_model=anonymizer,
             generator=generator, final_attacker=attacker, rules=rules,
-            tool_validators=DEFAULT_TOOL_VALIDATORS)
+            tool_validators=DEFAULT_TOOL_VALIDATORS, require_web_search=args.web_search)
     except (OSError, UnicodeError, ValueError, TypeError, RecursionError):
         # Input or provider text may be present in exception strings. Keep all
         # such text out of stderr and do not persist failed inputs/feedback.

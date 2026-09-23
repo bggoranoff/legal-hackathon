@@ -100,7 +100,7 @@ def pipeline_doubles():
     return inference, anonymizer, RecordingGenerator(), RecordingAttacker()
 
 
-def run_pipeline(trace=None, ground=None, rounds=1, doubles=None):
+def run_pipeline(trace=None, ground=None, rounds=1, doubles=None, require_web_search=False):
     inference, anonymizer, generator, attacker = doubles or pipeline_doubles()
     result = synthesize_trace(
         trace or simple_trace(),
@@ -110,6 +110,7 @@ def run_pipeline(trace=None, ground=None, rounds=1, doubles=None):
         anonymizer_model=anonymizer,
         generator=generator,
         final_attacker=attacker,
+        require_web_search=require_web_search,
     )
     return result, (inference, anonymizer, generator, attacker)
 
@@ -292,15 +293,29 @@ class SynthesizeTraceTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_SENSITIVE_SPAN", repr(result))
         self.assertNotIn("Actual matter", repr(result))
 
-    def test_absent_web_search_cannot_pass(self):
+    def test_absent_web_search_cannot_pass_when_required(self):
         for completed in (False, True):
             with self.subTest(completed=completed):
                 doubles = list(pipeline_doubles())
                 doubles[3] = RecordingAttacker([AttackReport((), "No guess",
                     web_search_used=False, completed=completed)])
-                result, _ = run_pipeline(doubles=doubles)
+                result, _ = run_pipeline(doubles=doubles, require_web_search=True)
                 self.assertEqual("failed", result.status)
                 self.assertIsNone(result.trace)
+
+    def test_web_search_not_required_by_default(self):
+        doubles = list(pipeline_doubles())
+        doubles[3] = RecordingAttacker([AttackReport((), "No guess", web_search_used=False)])
+        result, _ = run_pipeline(doubles=doubles)
+        self.assertEqual("passed_attack", result.status)
+        self.assertNotIn("web search", doubles[3].calls[0][1].lower())
+
+    def test_incomplete_attack_fails_without_web_search(self):
+        doubles = list(pipeline_doubles())
+        doubles[3] = RecordingAttacker([AttackReport((), "Partial", web_search_used=False, completed=False)])
+        result, _ = run_pipeline(doubles=doubles)
+        self.assertEqual("failed", result.status)
+        self.assertEqual("invalid_attack", result.reason)
 
     def test_incomplete_final_attack_cannot_pass_even_after_web_search(self):
         doubles = list(pipeline_doubles())

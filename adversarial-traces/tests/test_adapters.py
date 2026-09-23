@@ -133,15 +133,23 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(TraceError):
             PromptWorldGenerator(backend).generate(profile, WorldRules())
 
-    def test_final_attacker_requires_transport_search(self):
+    def test_final_attacker_requires_transport_search_when_enabled(self):
         for claimed in (attack_data(), {**attack_data(), "web_search_used": True}):
             backend = RecordingBackend(JSONResponse(claimed, web_search_used=False))
             with self.assertRaises(ModelResponseError):
-                PromptFinalAttacker(backend).attack(sample_trace(), "Identify the original matter")
+                PromptFinalAttacker(backend, web_search=True).attack(sample_trace(), "Identify the original matter")
+
+    def test_final_attacker_search_off_by_default(self):
+        backend = RecordingBackend(JSONResponse(attack_data(), web_search_used=False))
+        report = PromptFinalAttacker(backend).attack(sample_trace(), "Identify the original matter")
+        self.assertFalse(report.web_search_used)
+        self.assertTrue(report.completed)
+        self.assertFalse(backend.requests[0].web_search)
+        self.assertNotIn("must use web search", backend.requests[0].system)
 
     def test_final_attacker_accepts_verified_search_and_no_ground(self):
         backend = RecordingBackend(JSONResponse(attack_data(), web_search_used=True))
-        report = PromptFinalAttacker(backend).attack(sample_trace(), "Identify the original matter")
+        report = PromptFinalAttacker(backend, web_search=True).attack(sample_trace(), "Identify the original matter")
         self.assertTrue(report.web_search_used)
         self.assertTrue(report.completed)
         self.assertEqual(report.guesses, ())
