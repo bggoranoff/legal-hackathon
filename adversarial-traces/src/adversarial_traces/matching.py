@@ -37,8 +37,9 @@ def validate_ground(ground: GroundTruth) -> None:
 # typos and spacing variants ("Activison", "Jet Blue") without matching
 # unrelated words.
 FUZZY_THRESHOLD = 0.85
-# Aliases shorter than this (after removing spaces) must appear exactly.
-_MIN_FUZZY_CHARS = 4
+# Aliases shorter than this (after removing spaces) must appear exactly: short
+# aliases like tickers ("ADBE") fuzzy-match ordinary text such as "(a) be".
+_MIN_FUZZY_CHARS = 5
 
 
 def _similar(a: str, b: str) -> bool:
@@ -49,25 +50,22 @@ def mentions(text: str, alias: str) -> bool:
     """True when ``text`` names ``alias``, exactly or approximately.
 
     Both are normalized first, so "Microsoft's Activision buyout" mentions
-    "Microsoft". Whole words must line up: "Microsoftware" does not mention
-    "Microsoft" exactly, though a close misspelling of it does.
+    "Microsoft". Matches are whole words: an exact word run, the same letters
+    with different spacing ("Jet Blue" / "JetBlue"), or, for aliases of 5+
+    letters, a close misspelling over the same number of words ("Activison").
     """
     words = normalize_identity(text).split()
     target = normalize_identity(alias).split()
     if not words or not target:
         return False
     size = len(target)
-    for i in range(len(words) - size + 1):
-        if words[i:i + size] == target:
-            return True
     compact = "".join(target)
-    if len(compact) < _MIN_FUZZY_CHARS:
-        return False
-    # Compare against runs of one fewer to one more words so spacing
-    # differences ("Jet Blue" vs "JetBlue") still line up.
     for width in range(max(1, size - 1), size + 2):
         for i in range(len(words) - width + 1):
-            if _similar("".join(words[i:i + width]), compact):
+            window = words[i:i + width]
+            if "".join(window) == compact:
+                return True
+            if width == size and len(compact) >= _MIN_FUZZY_CHARS and _similar("".join(window), compact):
                 return True
     return False
 

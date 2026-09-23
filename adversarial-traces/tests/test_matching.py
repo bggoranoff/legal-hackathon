@@ -64,6 +64,9 @@ class MatchingTests(unittest.TestCase):
         ground = GroundTruth(party_aliases=(("GSE",),))
         self.assertTrue(mentions("GSE Systems", "GSE"))
         self.assertFalse(mentions("GSX Systems", "GSE"))
+        # Legal list markers must not fuzzy-match a ticker.
+        self.assertFalse(mentions("provided that (a) be true and correct", "ADBE"))
+        self.assertTrue(mentions("Nasdaq: ADBE", "ADBE"))
 
 
 if __name__ == "__main__":

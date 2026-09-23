@@ -162,7 +162,7 @@ Sensitive dynamic dictionary keys or sensitive tool names require explicit norma
 
 The default local matcher fails closed. The attack counts as a re-identification if **any** real party alias or matter identity is mentioned **anywhere** in the attacker's answer: any guess's identity or parties, its reasoning, or its cited spans. One party is enough, so "Microsoft's gaming buyout" matches a key that lists `Microsoft`.
 
-Matching is fuzzy. Text is normalized for Unicode, capitalization, punctuation and spacing, then an alias matches if it appears as whole words, or if a nearby run of words is at least 85% similar (`FUZZY_THRESHOLD` in `matching.py`). This catches misspellings like "Activison" and spacing like "Jet Blue". Aliases shorter than 4 letters (e.g. "GSE") must appear exactly. No model judge is used. Certainty does not discard a guess.
+Matching is fuzzy. Text is normalized for Unicode, capitalization, punctuation and spacing. An alias then matches if it appears as whole words, with different spacing ("Jet Blue" for "JetBlue"), or, for aliases of 5+ letters, as a close misspelling over the same number of words (at least 85% similar, `FUZZY_THRESHOLD` in `matching.py`), such as "Activison". Shorter aliases like tickers ("ADBE", "GSE") must appear exactly, because fuzzy matching them hits ordinary legal text such as "(a) be". No model judge is used. Certainty does not discard a guess.
 
 The same check runs on the finished synthetic trace **before** the attack: if a real name is still in it, the round fails straight away and the next round is told to remove real names (without being told which, so the answer key never reaches a model).
 
