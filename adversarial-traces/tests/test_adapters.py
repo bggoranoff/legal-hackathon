@@ -261,6 +261,9 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual({"original_trace", "attacker_answer"}, set(payload))
         self.assertEqual("Looks like Elm", payload["attacker_answer"]["reasoning"])
         self.assertFalse(backend.requests[0].web_search)
+        system = backend.requests[0].system
+        self.assertIn("Nasdaq", system)  # exchanges and laws are excluded explicitly
+        self.assertIn("surname", system)
 
     def test_judge_fails_closed_on_unclear_answer(self):
         for data in ({"identified": "yes", "matched": ""}, {"matched": ""}):
