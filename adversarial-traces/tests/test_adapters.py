@@ -88,7 +88,20 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(request.payload["inferences"], [])
         self.assertEqual(request.payload["hints"][0]["reasoning"], hint.reasoning)
         self.assertIn("NEVER invent", request.system)
+        self.assertNotIn("json", request.payload)
+
+    def test_json_content_is_sent_and_returned_as_an_object(self):
+        # Quotes inside values must survive without the model escaping them.
+        backend = RecordingBackend(JSONResponse({"json": {"text": 'The "{{BUYER}}" deal'}}))
+        text = json.dumps({"text": 'The "Elm" deal'})
+        result = PromptAnonymizerModel(backend).anonymize(text, ())
+        self.assertEqual({"text": 'The "{{BUYER}}" deal'}, json.loads(result))
+        request = backend.requests[0]
+        self.assertEqual({"text": 'The "Elm" deal'}, request.payload["json"])
+        self.assertNotIn("text", request.payload)
         self.assertIn("preserve all object keys", request.system)
+        with self.assertRaises(ModelResponseError):
+            PromptAnonymizerModel(RecordingBackend(JSONResponse({"json": {}, "text": "x"}))).anonymize(text, ())
 
     def test_anonymizer_rejects_extra_fields_and_nontext(self):
         for data in ({"text": 4}, {"text": "ok", "identity": "leak"}):
