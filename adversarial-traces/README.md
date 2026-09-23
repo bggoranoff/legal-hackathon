@@ -213,7 +213,7 @@ final_attacker = PromptFinalAttacker(BedrockConverseBackend(attacker_model_id))
 # final_attacker = PromptFinalAttacker(OpenAIResponsesBackend(openai_model), web_search=True)
 ```
 
-**Bedrock** uses the Converse API. It signs in the usual boto3 way, including `AWS_BEARER_TOKEN_BEDROCK`, and reads the region from `region=` or `AWS_REGION` (default `us-east-1`). JSON answers come back through a forced tool call. For a model that doesn't support that, pass `structured="text"` to ask for plain JSON instead. Each call is fresh, with no history. Asking the Bedrock backend for web search raises an error rather than silently skipping it. Provider errors report only the AWS error code, never the message, since messages can echo the trace.
+**Bedrock** uses the Converse API. It signs in the usual boto3 way, including `AWS_BEARER_TOKEN_BEDROCK`, and reads the region from `region=` or `AWS_REGION` (default `us-east-1`). JSON answers come back through a forced tool call. For a model that doesn't support that, pass `structured="text"` to ask for plain JSON instead. For reasoning models that take a reasoning level, such as GPT 6 Luna (`global.openai.gpt-6-luna`), pass `reasoning_effort=` one of `none`, `low`, `medium`, `high`, `xhigh`, `max` (the runner's `--reasoning-effort`). Leaving it out uses the model's default. Each call is fresh, with no history. Asking the Bedrock backend for web search raises an error rather than silently skipping it. Provider errors report only the AWS error code, never the message, since messages can echo the trace.
 
 **OpenAI** uses the Responses API with `store=False`, no conversation or prior-response ID, and no SDK retries. `store=False` does not itself promise provider zero retention.
 

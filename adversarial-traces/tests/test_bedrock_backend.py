@@ -92,9 +92,16 @@ class BedrockBackendTests(unittest.TestCase):
         self.assertIn("ThrottlingException", str(error.exception))
         self.assertNotIn("secret input", str(error.exception))
 
+    def test_reasoning_effort_is_sent_only_when_set(self):
+        self.backend(tool_response({"x": 1})).complete(request())
+        self.assertNotIn("additionalModelRequestFields", self.fake.calls[0])
+        self.backend(tool_response({"x": 1}), reasoning_effort="max").complete(request())
+        self.assertEqual({"reasoning": {"effort": "max"}}, self.fake.calls[0]["additionalModelRequestFields"])
+
     def test_config_is_validated(self):
         for kwargs in ({"model": ""}, {"model": "m", "structured": "xml"},
-                       {"model": "m", "max_output_tokens": 0}, {"model": "m", "timeout": 0}):
+                       {"model": "m", "max_output_tokens": 0}, {"model": "m", "timeout": 0},
+                       {"model": "m", "reasoning_effort": "banana"}):
             with self.subTest(kwargs=kwargs), self.assertRaises(TraceError):
                 BedrockConverseBackend(**kwargs)
 

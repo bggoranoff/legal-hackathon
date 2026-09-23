@@ -22,6 +22,8 @@ from typing import Any
 from .models import JSONRequest, JSONResponse, ModelResponseError, TraceError
 
 _MODES = ("tool", "text")
+# Reasoning levels accepted by OpenAI reasoning models on Bedrock (e.g. GPT 6 Luna).
+REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 _TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 
 
@@ -70,7 +72,7 @@ class BedrockConverseBackend:
 
     def __init__(self, model: str, *, client: Any = None, region: str | None = None,
                  max_output_tokens: int = 8192, timeout: float = 120.0,
-                 structured: str = "tool"):
+                 structured: str = "tool", reasoning_effort: str | None = None):
         if type(model) is not str or not model.strip():
             raise TraceError("An explicit model name is required")
         if type(max_output_tokens) is not int or max_output_tokens <= 0:
@@ -79,12 +81,17 @@ class BedrockConverseBackend:
             raise TraceError("timeout must be a positive finite number")
         if structured not in _MODES:
             raise TraceError("structured must be 'tool' or 'text'")
+        if reasoning_effort is not None and reasoning_effort not in REASONING_EFFORTS:
+            raise TraceError("reasoning_effort must be one of: " + ", ".join(REASONING_EFFORTS))
         self.model_id = model
         self._client = client
         self.region = region
         self.max_output_tokens = max_output_tokens
         self.timeout = timeout
         self.structured = structured
+        # None leaves the model's default. Only models that take an OpenAI-style
+        # reasoning setting accept this; others reject the request.
+        self.reasoning_effort = reasoning_effort
 
     def _get_client(self) -> Any:
         if self._client is None:
@@ -124,6 +131,8 @@ class BedrockConverseBackend:
             "messages": [{"role": "user", "content": [{"text": encoded_payload}]}],
             "inferenceConfig": {"maxTokens": self.max_output_tokens},
         }
+        if self.reasoning_effort is not None:
+            kwargs["additionalModelRequestFields"] = {"reasoning": {"effort": self.reasoning_effort}}
         if self.structured == "tool":
             kwargs["toolConfig"] = {
                 "tools": [{"toolSpec": {
