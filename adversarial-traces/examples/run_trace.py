@@ -24,6 +24,7 @@ from adversarial_traces.adapters import (
     PromptAnonymizerModel, PromptFinalAttacker, PromptInferenceModel, PromptWorldGenerator,
 )
 from adversarial_traces.matching import validate_ground
+from adversarial_traces.bedrock_backend import BedrockConverseBackend
 from adversarial_traces.openai_backend import OpenAIResponsesBackend
 
 
@@ -163,7 +164,8 @@ def _write_private_output(path, record, *, overwrite):
 
 def parser():
     result = argparse.ArgumentParser(description=(
-        "Run real model/API calls for one trace; the final attacker uses web search only with --web-search. "
+        "Run real model/API calls for one trace. All models run on Amazon Bedrock, except the final "
+        "attacker, which runs on OpenAI with web search when --web-search is given. "
         "Ground aliases must describe the selected input trace."
     ))
     result.add_argument("input", type=Path, help="Original source_traces.jsonl or canonical JSONL")
@@ -171,7 +173,8 @@ def parser():
         "Private ground aliases JSON; ground.example.json describes Microsoft/Activision only"
     ))
     for name in ("inference", "anonymizer", "generator", "attacker"):
-        result.add_argument(f"--{name}-model", required=True, help="Explicit provider model ID")
+        result.add_argument(f"--{name}-model", required=True, help=(
+            "Explicit Bedrock model ID (the attacker's is an OpenAI model ID with --web-search)"))
     result.add_argument("--abstraction-rounds", type=int, default=2)
     result.add_argument("--outer-rounds", type=int, default=3)
     result.add_argument("--rules", type=Path, help="Optional JSON object with WorldRules fields")
@@ -180,7 +183,11 @@ def parser():
     selector.add_argument("--trace-id", help="Exact trace_id in the input, before import neutralizes IDs")
     result.add_argument("--out", type=Path, required=True, help="One successful synthetic trace as JSONL")
     result.add_argument("--overwrite", action="store_true", help="Explicitly replace an existing output")
-    result.add_argument("--web-search", action="store_true", help="Let the final attacker use web search (off by default)")
+    result.add_argument("--web-search", action="store_true", help=(
+        "Run the final attacker on OpenAI with web search (off by default; needs OPENAI_API_KEY)"))
+    result.add_argument("--region", help="Bedrock region; defaults to AWS_REGION, then us-east-1")
+    result.add_argument("--bedrock-structured", choices=("tool", "text"), default="tool", help=(
+        "How Bedrock returns JSON: forced tool call (default) or plain JSON text for models without tool choice"))
     return result
 
 
@@ -206,11 +213,16 @@ def main(argv=None):
         ground = _ground(args.ground)
         rules = _rules(args.rules)
         # Construction is lazy: no SDK/client initialization occurs here.
-        inference = PromptInferenceModel(OpenAIResponsesBackend(args.inference_model))
-        anonymizer = PromptAnonymizerModel(OpenAIResponsesBackend(args.anonymizer_model))
-        generator = PromptWorldGenerator(OpenAIResponsesBackend(args.generator_model))
-        attacker = PromptFinalAttacker(OpenAIResponsesBackend(args.attacker_model),
-                                       web_search=args.web_search)
+        def bedrock(model):
+            return BedrockConverseBackend(model, region=args.region, structured=args.bedrock_structured)
+
+        inference = PromptInferenceModel(bedrock(args.inference_model))
+        anonymizer = PromptAnonymizerModel(bedrock(args.anonymizer_model))
+        generator = PromptWorldGenerator(bedrock(args.generator_model))
+        # Bedrock has no built-in web search, so a web-searching attacker uses OpenAI.
+        attacker_backend = (OpenAIResponsesBackend(args.attacker_model) if args.web_search
+                            else bedrock(args.attacker_model))
+        attacker = PromptFinalAttacker(attacker_backend, web_search=args.web_search)
         result = synthesize_trace(trace, ground, args.abstraction_rounds, args.outer_rounds,
             inference_model=inference, anonymizer_model=anonymizer,
             generator=generator, final_attacker=attacker, rules=rules,

@@ -303,6 +303,21 @@ class SynthesizeTraceTests(unittest.TestCase):
                 self.assertEqual("failed", result.status)
                 self.assertIsNone(result.trace)
 
+    def test_real_name_left_in_trace_fails_before_attack_and_retries(self):
+        inference, _, _, attacker = pipeline_doubles()
+        generator = RecordingGenerator(lambda profile, rules, n:
+            SyntheticWorld({key: f"Invented {key.title()} {n}" for key in profile.placeholders}))
+        # First pass leaves the real name in; second pass removes it.
+        anonymizer = RecordingAnonymizer(lambda text, inferences, hints:
+            text.replace("Original Buyer", "{{BUYER}}") if hints else text.replace("the business", "{{TARGET}}"))
+        ground = GroundTruth(party_aliases=(("Original Buyer",),))
+        result, _ = run_pipeline(ground=ground, rounds=2,
+            doubles=(inference, anonymizer, generator, attacker))
+        self.assertTrue(result.succeeded)
+        self.assertEqual(["reidentified", "passed_attack"], [a.status for a in result.attempts])
+        self.assertEqual(1, len(attacker.calls))
+        self.assertNotIn("Original Buyer", repr(anonymizer.calls[-1][2]))
+
     def test_web_search_not_required_by_default(self):
         doubles = list(pipeline_doubles())
         doubles[3] = RecordingAttacker([AttackReport((), "No guess", web_search_used=False)])

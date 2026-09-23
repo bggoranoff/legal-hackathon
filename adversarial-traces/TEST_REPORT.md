@@ -1,6 +1,6 @@
 # Verification report
 
-- Python: 3.12.14 (rechecked on 3.11.15 after making web search optional: 82 tests passed).
+- Python: 3.12.14. Rechecked on 3.11.15 after the Bedrock backend, fuzzy matching and optional web search were added: 91 tests passed, and Bedrock request shapes were checked with botocore's Stubber (no AWS calls).
 - 79 tests passed against the source package.
 - The same 79 tests passed against the built and separately installed wheel (the wheel is not checked in; rebuild it with the command below).
 - The optional dataset integration test imported and validated all 100 prior source traces.
@@ -17,7 +17,7 @@ python -m pip wheel . --no-deps --no-build-isolation --no-index --wheel-dir dist
 Test command (set the dataset path when available):
 
 ```bash
-PYTHONPATH=src ADVERSARIAL_TRACES_DATASET=../legal-agent-traces/source_traces.jsonl python -m unittest discover -s tests
+PYTHONPATH=src ADVERSARIAL_TRACES_DATASET=../backend/data/source_traces.jsonl python -m unittest discover -s tests
 ```
 
 The tests verify contracts, control flow, structural/coherence checks and failure handling. They do not establish anonymization efficacy, legal accuracy or provider retention guarantees.

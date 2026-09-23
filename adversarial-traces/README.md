@@ -17,10 +17,11 @@ From this directory:
 python -m pip install .
 ```
 
-For the included provider adapter:
+For the included provider adapters (Bedrock for everything, OpenAI only for a web-searching attacker):
 
 ```bash
-python -m pip install '.[openai]'
+python -m pip install '.[bedrock]'          # default
+python -m pip install '.[bedrock,openai]'   # if you turn on web search
 ```
 
 Python 3.10 or later is required. `src/adversarial_traces/` can also be added to an existing repository that uses a `src` package layout. Nothing is published to a package registry.
@@ -157,14 +158,18 @@ Sensitive dynamic dictionary keys or sensitive tool names require explicit norma
 
 ### Matching and failures
 
-The default local matcher checks every candidate. It counts either an exact normalized matter-identity alias or all required party groups appearing together in one guess, using distinct matched parties. It normalizes Unicode, capitalization, punctuation and whitespace; it does not use fuzzy substring matching or a model judge. Certainty does not discard an otherwise correct guess.
+The default local matcher fails closed. The attack counts as a re-identification if **any** real party alias or matter identity is mentioned **anywhere** in the attacker's answer: any guess's identity or parties, its reasoning, or its cited spans. One party is enough, so "Microsoft's gaming buyout" matches a key that lists `Microsoft`.
 
-Use an answer key for the selected trace, including likely buyer/target aliases. Missing aliases or a wrong answer key can produce a false apparent pass. A custom `matcher(report, ground)` must remain local and deterministic to preserve the stated ground-truth boundary.
+Matching is fuzzy. Text is normalized for Unicode, capitalization, punctuation and spacing, then an alias matches if it appears as whole words, or if a nearby run of words is at least 85% similar (`FUZZY_THRESHOLD` in `matching.py`). This catches misspellings like "Activison" and spacing like "Jet Blue". Aliases shorter than 4 letters (e.g. "GSE") must appear exactly. No model judge is used. Certainty does not discard a guess.
+
+The same check runs on the finished synthetic trace **before** the attack: if a real name is still in it, the round fails straight away and the next round is told to remove real names (without being told which, so the answer key never reaches a model).
+
+Use an answer key for the selected trace, including likely buyer/target aliases and tickers (e.g. `MSFT`); fuzzy matching won't link a ticker to a name. Avoid aliases that are ordinary words (say, `Spirit` on its own), because any use of the word will then count as a match. Too few aliases can still produce a false pass. A custom `matcher(report, ground)` must remain local and deterministic to preserve the stated ground-truth boundary.
 
 | Result | Meaning |
 | --- | --- |
 | `passed_attack` | A completed attack did not match the supplied ground truth; `trace` contains the candidate |
-| `failed`, `reidentified` | The attacker kept identifying the original within the allowed rounds |
+| `failed`, `reidentified` | The attacker kept naming the original, or a real name stayed in the trace, within the allowed rounds |
 | `failed`, `invalid_candidate` | Rewriting, filling, or coherence failed validation within the allowed rounds |
 | `failed`, `invalid_attack` | The final attack did not complete, or web search was required but not confirmed |
 | `failed`, `model_error` | A provider or structured-response failure prevented evaluation |
@@ -183,30 +188,40 @@ final_attacker = PromptFinalAttacker(backend, web_search=True)
 result = synthesize_trace(..., final_attacker=final_attacker, require_web_search=True)
 ```
 
-With `require_web_search=True`, an attack without a confirmed completed search fails as `invalid_attack`. A custom final attacker must honestly report completed web-search execution; the included provider backend derives that flag from actual completed search output, not from model-written JSON. The example runner takes `--web-search` for the same thing.
+With `require_web_search=True`, an attack without a confirmed completed search fails as `invalid_attack`. A custom final attacker must honestly report completed web-search execution; the included OpenAI backend derives that flag from actual completed search output, not from model-written JSON. Bedrock has no built-in web search, so use `OpenAIResponsesBackend` for the attacker when this is on. The example runner takes `--web-search` for the same thing.
 
-## Use the optional API adapter
+## Use the optional API adapters
+
+Everything runs on Amazon Bedrock by default. OpenAI is used only for the final attacker when web search is on.
 
 ```python
 from adversarial_traces.adapters import (
     PromptInferenceModel, PromptAnonymizerModel,
     PromptWorldGenerator, PromptFinalAttacker,
 )
+from adversarial_traces.bedrock_backend import BedrockConverseBackend
 from adversarial_traces.openai_backend import OpenAIResponsesBackend
 
-inference_model = PromptInferenceModel(OpenAIResponsesBackend(inference_model_name))
-anonymizer_model = PromptAnonymizerModel(OpenAIResponsesBackend(anonymizer_model_name))
-generator = PromptWorldGenerator(OpenAIResponsesBackend(generator_model_name))
-final_attacker = PromptFinalAttacker(OpenAIResponsesBackend(attacker_model_name))
+inference_model = PromptInferenceModel(BedrockConverseBackend(inference_model_id))
+anonymizer_model = PromptAnonymizerModel(BedrockConverseBackend(anonymizer_model_id))
+generator = PromptWorldGenerator(BedrockConverseBackend(generator_model_id))
+final_attacker = PromptFinalAttacker(BedrockConverseBackend(attacker_model_id))
+
+# With web search on instead:
+# final_attacker = PromptFinalAttacker(OpenAIResponsesBackend(openai_model), web_search=True)
 ```
 
-Choose model IDs supported by your account: all need structured outputs, and the final model needs web search only if you turn it on. There are no hidden model defaults or automatic paid calls during import/tests. The adapter makes a fresh Responses request per call, uses `store=False`, passes no conversation or prior-response ID, and disables SDK retries for clients it creates. `store=False` does not itself promise provider zero retention.
+**Bedrock** uses the Converse API. It signs in the usual boto3 way, including `AWS_BEARER_TOKEN_BEDROCK`, and reads the region from `region=` or `AWS_REGION` (default `us-east-1`). JSON answers come back through a forced tool call. For a model that doesn't support that, pass `structured="text"` to ask for plain JSON instead. Each call is fresh, with no history. Asking the Bedrock backend for web search raises an error rather than silently skipping it. Provider errors report only the AWS error code, never the message, since messages can echo the trace.
 
-To use the previous 100-trace dataset, extract its archive, configure `OPENAI_API_KEY` locally, and execute the runner explicitly:
+**OpenAI** uses the Responses API with `store=False`, no conversation or prior-response ID, and no SDK retries. `store=False` does not itself promise provider zero retention.
+
+Choose model IDs your account can use; all need structured outputs. There are no hidden model defaults or automatic paid calls during import/tests. The final attacker's model ID must differ from the inference model's.
+
+To run the repo's 100-trace dataset, set your AWS credentials (and `OPENAI_API_KEY` only if you use `--web-search`), then run:
 
 ```bash
 mkdir -p local_results
-python examples/run_trace.py ../legal-agent-traces/source_traces.jsonl \
+python examples/run_trace.py ../backend/data/source_traces.jsonl \
   --trace-id microsoft_activision_2022_t01 \
   --ground examples/ground.example.json \
   --inference-model "$INFERENCE_MODEL" \
@@ -216,6 +231,8 @@ python examples/run_trace.py ../legal-agent-traces/source_traces.jsonl \
   --abstraction-rounds 3 --outer-rounds 2 \
   --out local_results/synthetic_trace.json
 ```
+
+Add `--web-search` to run the attacker on OpenAI with web search (then `--attacker-model` is an OpenAI model ID). Use `--region` to pick a Bedrock region and `--bedrock-structured text` for models without forced tool calls.
 
 The runner writes only a passing synthetic trace. It exits without writing a candidate on failure and refuses to overwrite an existing output unless requested. Optional `--rules rules.json` accepts the `WorldRules` fields in JSON form.
 
@@ -231,13 +248,13 @@ To include the prior dataset compatibility check:
 
 ```bash
 PYTHONPATH=src \
-ADVERSARIAL_TRACES_DATASET=../legal-agent-traces/source_traces.jsonl \
+ADVERSARIAL_TRACES_DATASET=../backend/data/source_traces.jsonl \
 python -m unittest discover -s tests -v
 ```
 
-Tests cover current-text-only inference, exact round bounds, requested attributes, ground-truth isolation, whole-trace hints, shared filling, original input preservation, aliases, tool structure, coherence rules, and provider/search failures. The importer was checked against all 100 previously generated traces. Tests and examples use doubles; no live model effectiveness or privacy experiment has been run as part of building this package.
+Tests cover current-text-only inference, exact round bounds, requested attributes, ground-truth isolation, whole-trace hints, shared filling, original input preservation, fuzzy alias matching, the real-name leak check, tool structure, coherence rules, and provider/search failures for both backends. The importer was checked against all 100 previously generated traces. Tests and examples use doubles; no live model effectiveness or privacy experiment has been run as part of building this package.
 
-Core algorithm files are `core.py`, `matching.py` and `trace.py`; model interfaces live in `models.py`. `adapters.py` supplies prompts and output parsing, and `openai_backend.py` supplies the optional transport. Hidden model reasoning is neither requested nor extracted; `reasoning` fields mean short visible evidence explanations.
+Core algorithm files are `core.py`, `matching.py` and `trace.py`; model interfaces live in `models.py`. `adapters.py` supplies prompts and output parsing. `bedrock_backend.py` and `openai_backend.py` supply the optional transports. Hidden model reasoning is neither requested nor extracted; `reasoning` fields mean short visible evidence explanations.
 
 ## References
 

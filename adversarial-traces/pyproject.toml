@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 openai = ["openai>=1.68.0"]
+bedrock = ["boto3>=1.39"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

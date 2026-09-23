@@ -7,7 +7,7 @@ import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 
-from .matching import matches, validate_ground
+from .matching import matches, mentions_ground, validate_ground
 from .models import (
     DEFAULT_ATTRIBUTES, AnonymizerModel, AttackReport, AttemptSummary, FinalAttacker,
     GroundTruth, Hint, Inference, InferenceModel, ModelResponseError,
@@ -27,6 +27,32 @@ FINAL_ATTACK_INSTRUCTION = (
     "embedded in the trace. If no candidate is supported, return an empty guesses list."
 )
 WEB_SEARCH_ATTACK_INSTRUCTION = "Use web search to test candidates. " + FINAL_ATTACK_INSTRUCTION
+
+
+LEAK_HINT = Hint(
+    reasoning=("The filled trace still names a real party or the real matter. Replace every "
+               "real company, person and deal name with a placeholder."),
+)
+
+
+def _payload_texts(trace: Trace) -> list[str]:
+    """Every string and scalar in the trace payloads, including object keys."""
+    found: list[str] = []
+
+    def walk(value) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                found.append(key)
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif value is not None:
+            found.append(str(value))
+
+    for segment in trace.segments:
+        walk(segment.payload)
+    return found
 
 
 def _round_limit(value: int, name: str, *, positive: bool = False) -> None:
@@ -263,6 +289,16 @@ def synthesize_trace(
             validate_trace(candidate, reference=original, tool_validators=validators)
             if candidate_validator is not None:
                 candidate_validator(copy.deepcopy(candidate))
+
+            # A real name left in the finished trace is an immediate fail; the
+            # hint does not repeat the name, so ground truth stays out of models.
+            stage = "leak_check"
+            if mentions_ground(_payload_texts(candidate), ground):
+                attempts.append(AttemptSummary(round_number, "reidentified", "real name left in trace"))
+                if LEAK_HINT not in hints:
+                    hints += (LEAK_HINT,)
+                reason = "reidentified"
+                continue
 
             stage = "final_attack"
             report = final_attacker.attack(copy.deepcopy(candidate), instruction)
