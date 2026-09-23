@@ -24,14 +24,15 @@ from .models import JSONRequest, JSONResponse, ModelResponseError, TraceError
 _MODES = ("tool", "text")
 # Reasoning levels accepted by OpenAI reasoning models on Bedrock (e.g. GPT 6 Luna).
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
-# GPT 6 Luna runs at max reasoning unless told otherwise. Other models get no
-# reasoning setting by default (Claude on Bedrock rejects it).
-DEFAULT_REASONING = {"gpt-6-luna": "max"}
+# Reasoning levels used unless told otherwise: max for GPT 6 Luna (stages 1-2),
+# xhigh for GPT 6 Sol (the attacker). Other models get no reasoning setting
+# by default (Claude on Bedrock rejects it).
+DEFAULT_REASONING = {"gpt-6-luna": "max", "gpt-6-sol": "xhigh"}
 _AUTO = "auto"
 
 
 def default_reasoning_effort(model: str) -> str | None:
-    """The reasoning level used when none is given: max for GPT 6 Luna, else none."""
+    """The reasoning level used when none is given (see DEFAULT_REASONING), else None."""
     for name, effort in DEFAULT_REASONING.items():
         if name in model:
             return effort
@@ -110,7 +111,7 @@ class BedrockConverseBackend:
         self.max_output_tokens = max_output_tokens
         self.timeout = timeout
         self.structured = structured
-        # By default: max for GPT 6 Luna, unset for other models. None leaves the
+        # By default: max for GPT 6 Luna, xhigh for GPT 6 Sol, unset for others. None leaves the
         # model's own default. Only OpenAI-style reasoning models accept a level.
         self.reasoning_effort = reasoning_effort
 

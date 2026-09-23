@@ -169,6 +169,11 @@ def _write_private_output(path, record, *, overwrite):
             os.unlink(temporary)
 
 
+# Defaults: GPT 6 Luna (max reasoning) for stages 1-2, GPT 6 Sol (xhigh) attacks.
+LUNA = "global.openai.gpt-6-luna"
+SOL = "global.openai.gpt-6-sol"
+
+
 def parser():
     result = argparse.ArgumentParser(description=(
         "Run real model/API calls for one trace. All models run on Amazon Bedrock, except the final "
@@ -179,9 +184,10 @@ def parser():
     result.add_argument("--ground", type=Path, required=True, help=(
         "Private ground aliases JSON; ground.example.json describes Microsoft/Activision only"
     ))
-    for name in ("inference", "anonymizer", "generator", "attacker"):
-        result.add_argument(f"--{name}-model", required=True, help=(
-            "Explicit Bedrock model ID (the attacker's is an OpenAI model ID with --web-search)"))
+    for name, default in (("inference", LUNA), ("anonymizer", LUNA), ("generator", LUNA), ("attacker", SOL)):
+        result.add_argument(f"--{name}-model", help=(
+            f"Bedrock model ID (default: {default}). With --web-search the attacker needs an "
+            "explicit OpenAI model ID"))
     result.add_argument("--abstraction-rounds", type=int, default=2)
     result.add_argument("--outer-rounds", type=int, default=3)
     result.add_argument("--rules", type=Path, help="Optional JSON object with WorldRules fields")
@@ -194,7 +200,8 @@ def parser():
         "Run the final attacker on OpenAI with web search (off by default; needs OPENAI_API_KEY)"))
     result.add_argument("--region", help="Bedrock region; defaults to AWS_REGION, then us-east-1")
     result.add_argument("--reasoning-effort", choices=("none", "low", "medium", "high", "xhigh", "max"),
-        help="Reasoning level for Bedrock models that support it (default: max for GPT 6 Luna, unset for others)")
+        help=("Reasoning level for every Bedrock model that supports it "
+              "(default: max for GPT 6 Luna, xhigh for GPT 6 Sol, unset for others)"))
     result.add_argument("--bedrock-structured", choices=("tool", "text"), default="tool", help=(
         "How Bedrock returns JSON: forced tool call (default) or plain JSON text for models without tool choice"))
     return result
@@ -202,6 +209,13 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.web_search and not args.attacker_model:
+        print("--web-search needs an explicit OpenAI --attacker-model; no API calls made.", file=sys.stderr)
+        return 2
+    for name, default in (("inference_model", LUNA), ("anonymizer_model", LUNA),
+                          ("generator_model", LUNA), ("attacker_model", SOL)):
+        if not getattr(args, name):
+            setattr(args, name, default)
     selected_index = 0 if args.index is None else args.index
     if selected_index < 0 or args.abstraction_rounds < 1 or args.outer_rounds < 0:
         print("Invalid index or round budget; no API calls made.", file=sys.stderr)
