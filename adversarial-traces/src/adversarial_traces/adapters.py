@@ -245,6 +245,13 @@ class PromptAnonymizerModel:
         if type(structured) is dict and set(structured) == {"text"} and type(structured["text"]) is str:
             rewritten = self.anonymize(structured["text"], inferences, hints=hints)
             return json.dumps({"text": rewritten}, ensure_ascii=False, allow_nan=False)
+        # Likewise a step wrapped in one field ({"result": {...}}, {"arguments":
+        # {...}}) goes without the wrapper, which models sometimes drop.
+        if type(structured) is dict and len(structured) == 1:
+            (field, inner), = structured.items()
+            if type(inner) is dict:
+                rewritten = json.loads(self.anonymize(json.dumps(inner, ensure_ascii=False), inferences, hints=hints))
+                return json.dumps({field: rewritten}, ensure_ascii=False, allow_nan=False)
         as_json = type(structured) is dict
         if as_json:
             shape_rule = (

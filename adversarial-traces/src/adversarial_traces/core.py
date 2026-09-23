@@ -381,6 +381,11 @@ def synthesize_trace(
         except ModelResponseError:
             # Do not expose raw provider exceptions, which can contain inputs.
             attempts.append(AttemptSummary(round_number, "model_error", stage))
+            if stage in ("abstraction", "generation"):
+                # A failed rewrite or world only costs this round: nothing can
+                # pass without a completed attack and scoring in a later round.
+                reason = "model_error"
+                continue
             return SynthesisResult("failed", None, tuple(attempts), "model_error")
         except TraceError:
             if stage == "scoring":

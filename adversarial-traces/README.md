@@ -190,7 +190,7 @@ Use an answer key for the selected trace, including likely buyer/target aliases 
 | `failed`, `reidentified` | The attacker kept naming the original, or a real name stayed in the trace, within the allowed rounds |
 | `failed`, `invalid_candidate` | Rewriting, filling, or coherence failed validation within the allowed rounds |
 | `failed`, `invalid_attack` | The final attack did not complete, or web search was required but not confirmed |
-| `failed`, `model_error` | A provider or structured-response failure prevented evaluation |
+| `failed`, `model_error` | A provider or structured-response failure prevented evaluation. In stages 1–2 it only costs that round; during the attack or scoring it stops the run |
 | `failed`, `budget_exhausted` | No outer rounds were allowed |
 
 Invalid input/configuration raises `TraceError`. Unexpected exceptions in custom code propagate; they are not interpreted as privacy success. Provider failures, refusals and truncated JSON are never converted to empty guesses. Rejected traces, attacker reasoning, private hints and answer keys are not returned in `SynthesisResult`. Attempt summaries contain only round numbers and sanitized statuses.

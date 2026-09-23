@@ -185,7 +185,8 @@ class BedrockConverseBackend:
 
         stop = response.get("stopReason") if isinstance(response, dict) else None
         if stop not in ("end_turn", "tool_use", "stop_sequence"):
-            raise ModelResponseError("Bedrock returned an incomplete or filtered response")
+            label = stop if isinstance(stop, str) and re.fullmatch(r"[a-z_]{1,40}", stop) else "unknown"
+            raise ModelResponseError(f"Bedrock returned an incomplete or filtered response ({label})")
         content = (response.get("output") or {}).get("message", {}).get("content")
         if not isinstance(content, list) or not content:
             raise ModelResponseError("Bedrock returned no output content")

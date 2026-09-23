@@ -118,17 +118,21 @@ class AdapterTests(unittest.TestCase):
         self.assertNotIn("json", backend.requests[0].payload)
 
     def test_json_rewrite_repairs_echoed_and_dropped_null_fields_only(self):
-        original = {"result": {"items": [{"id": "Elm-1", "date": None}], "note": "Elm"}}
-        reply = {"json": {"result": {"items": [{"id": "{{DOC}}"}], "note": "{{BUYER}}"},
-                          "hints": [], "inferences": []}}
+        original = {"items": [{"id": "Elm-1", "date": None}], "note": "Elm"}
+        reply = {"json": {"items": [{"id": "{{DOC}}"}], "note": "{{BUYER}}", "hints": [], "inferences": []}}
         out = PromptAnonymizerModel(RecordingBackend(JSONResponse(reply))).anonymize(json.dumps(original), ())
-        self.assertEqual({"result": {"items": [{"id": "{{DOC}}", "date": None}], "note": "{{BUYER}}"}},
-                         json.loads(out))
+        self.assertEqual({"items": [{"id": "{{DOC}}", "date": None}], "note": "{{BUYER}}"}, json.loads(out))
         # A dropped field that had a real value comes back as a placeholder, never the value.
-        reply = {"json": {"result": {"items": [{"date": None}], "note": "{{BUYER}}"}}}
+        reply = {"json": {"items": [{"date": None}], "note": "{{BUYER}}"}}
         out = PromptAnonymizerModel(RecordingBackend(JSONResponse(reply))).anonymize(json.dumps(original), ())
         self.assertNotIn("Elm", out)
-        self.assertEqual("{{ID}}", json.loads(out)["result"]["items"][0]["id"])
+        self.assertEqual("{{ID}}", json.loads(out)["items"][0]["id"])
+
+    def test_single_field_wrapper_is_removed_and_restored(self):
+        backend = RecordingBackend(JSONResponse({"json": {"buyer": "{{BUYER}}", "limit": 3}}))
+        out = PromptAnonymizerModel(backend).anonymize(json.dumps({"arguments": {"buyer": "Elm", "limit": 3}}), ())
+        self.assertEqual({"arguments": {"buyer": "{{BUYER}}", "limit": 3}}, json.loads(out))
+        self.assertEqual({"buyer": "Elm", "limit": 3}, backend.requests[0].payload["json"])
 
     def test_findings_that_only_point_at_placeholders_are_dropped(self):
         item = inference_data()["inferences"][0]

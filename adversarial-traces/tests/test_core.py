@@ -405,6 +405,23 @@ class SynthesizeTraceTests(unittest.TestCase):
             synthesize_trace(tool_trace(), GroundTruth(identities=("X",)), 1, 1, inference_model=inference,
                 anonymizer_model=anonymizer, generator=generator, final_attacker=attacker, parallel_steps=0)
 
+    def test_stage_1_model_error_costs_one_round_then_retries(self):
+        inference, _, generator, attacker = pipeline_doubles()
+        calls = {"n": 0}
+
+        class FlakyAnonymizer(RecordingAnonymizer):
+            def anonymize(self, text, inferences, *, hints=()):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise ModelResponseError("incomplete")
+                return super().anonymize(text, inferences, hints=hints)
+
+        anonymizer = FlakyAnonymizer(lambda text, inferences, hints: text.replace("Original Buyer", "{{BUYER}}"))
+        result = synthesize_trace(simple_trace(), GroundTruth(identities=("Unrelated",)), 1, 2,
+            inference_model=inference, anonymizer_model=anonymizer, generator=generator, final_attacker=attacker)
+        self.assertTrue(result.succeeded)
+        self.assertEqual(["model_error", "passed_attack"], [a.status for a in result.attempts])
+
     def test_web_search_not_required_by_default(self):
         doubles = list(pipeline_doubles())
         doubles[3] = RecordingAttacker([AttackReport((), "No guess", web_search_used=False)])
