@@ -109,6 +109,18 @@ class AdapterTests(unittest.TestCase):
         echoed = {"text": "ok", "inferences": [], "hints": [], "identity": "unused"}
         self.assertEqual("ok", PromptAnonymizerModel(RecordingBackend(JSONResponse(echoed))).anonymize("Elm", ()))
 
+    def test_json_rewrite_repairs_echoed_and_dropped_null_fields_only(self):
+        original = {"result": {"items": [{"id": "Elm-1", "date": None}], "note": "Elm"}}
+        reply = {"json": {"result": {"items": [{"id": "{{DOC}}"}], "note": "{{BUYER}}"},
+                          "hints": [], "inferences": []}}
+        out = PromptAnonymizerModel(RecordingBackend(JSONResponse(reply))).anonymize(json.dumps(original), ())
+        self.assertEqual({"result": {"items": [{"id": "{{DOC}}", "date": None}], "note": "{{BUYER}}"}},
+                         json.loads(out))
+        # A dropped field that had a real value is not restored.
+        reply = {"json": {"result": {"items": [{"date": None}], "note": "{{BUYER}}"}}}
+        out = PromptAnonymizerModel(RecordingBackend(JSONResponse(reply))).anonymize(json.dumps(original), ())
+        self.assertNotIn("Elm", out)
+
     def test_findings_that_only_point_at_placeholders_are_dropped(self):
         item = inference_data()["inferences"][0]
         data = {"inferences": [

@@ -185,6 +185,27 @@ class PromptInferenceModel:
         return tuple(result)
 
 
+def _repair_shape(original: Any, rewritten: Any) -> Any:
+    """Undo two harmless format slips seen from some providers.
+
+    Fields the original never had are dropped (models echo input fields into
+    the answer), and fields that were null in the original and went missing
+    are restored as null. Nothing else is changed, so real values never come
+    back; every other structural change is still rejected later.
+    """
+    if type(original) is dict and type(rewritten) is dict:
+        repaired = {}
+        for key, value in original.items():
+            if key in rewritten:
+                repaired[key] = _repair_shape(value, rewritten[key])
+            elif value is None:
+                repaired[key] = None
+        return repaired
+    if type(original) is list and type(rewritten) is list and len(original) == len(rewritten):
+        return [_repair_shape(a, b) for a, b in zip(original, rewritten)]
+    return rewritten
+
+
 class PromptAnonymizerModel:
     """Remove or generalize evidence; never re-instantiate during this stage."""
 
@@ -242,7 +263,8 @@ class PromptAnonymizerModel:
             data = _object(_complete(self.backend, request).data, {"json"}, "anonymization response", extra_ok=True)
             if type(data["json"]) is not dict:
                 raise ModelResponseError("Rewritten JSON must be an object")
-            return json.dumps(data["json"], ensure_ascii=False, allow_nan=False)
+            _valid_json(data["json"])
+            return json.dumps(_repair_shape(structured, data["json"]), ensure_ascii=False, allow_nan=False)
         data = _object(_complete(self.backend, request).data, {"text"}, "anonymization response", extra_ok=True)
         return _string(data["text"], "rewritten text")
 
