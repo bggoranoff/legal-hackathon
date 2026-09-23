@@ -60,7 +60,7 @@ The prompt adapter instructs the anonymizer to remove, obfuscate or generalize, 
 
 ```python
 from adversarial_traces import (
-    GroundTruth, synthesize_trace, trace_from_dict, trace_to_dict,
+    GroundTruth, synthesize_trace, trace_from_dict, trace_to_source_record,
 )
 
 trace = trace_from_dict(source_record)
@@ -83,11 +83,13 @@ result = synthesize_trace(
 )
 
 if result.succeeded:
-    synthetic_record = trace_to_dict(result.trace)
+    synthetic_record = trace_to_source_record(result.trace, workflow=source_record["workflow"])
 else:
     assert result.trace is None
     print(result.reason)  # sanitized category, no rejected trace or answer key
 ```
+
+`trace_to_source_record` writes the result in the same format as `backend/data/source_traces.jsonl`: the same top-level fields and the same fields on every event. The repo's dashboard loader (`backend/data.py`) reads it directly. It gets a fresh `synthetic_<id>` case and trace ID, and keeps only the generic `workflow` (e.g. `structure_payment`). Timestamps, run times, `as_of_date` and `final_outcome` are null, and `artifacts` is empty, rather than copied from the real trace. `trace_to_dict` still gives the package's own internal format.
 
 `AdversarialAnonymize` and `SynthesizeTrace` are also exported as aliases matching the pseudocode's names. Python argument names and structured return types are documented above.
 
@@ -234,7 +236,7 @@ python examples/run_trace.py ../backend/data/source_traces.jsonl \
 
 Add `--web-search` to run the attacker on OpenAI with web search (then `--attacker-model` is an OpenAI model ID). Use `--region` to pick a Bedrock region and `--bedrock-structured text` for models without forced tool calls.
 
-The runner writes only a passing synthetic trace. It exits without writing a candidate on failure and refuses to overwrite an existing output unless requested. Optional `--rules rules.json` accepts the `WorldRules` fields in JSON form.
+The runner writes only a passing synthetic trace, as one line in the `source_traces.jsonl` format. It exits without writing a candidate on failure and refuses to overwrite an existing output unless requested. Optional `--rules rules.json` accepts the `WorldRules` fields in JSON form.
 
 For N segments, the maximum per candidate is approximately `2 * N * K_abs + 2` model requests: local inference and rewriting, one world generation and one final attack. Early stopping reduces this. Web-search tool work is additional. Model/context limits may require choosing smaller trace segments; this implementation does not silently truncate inputs.
 

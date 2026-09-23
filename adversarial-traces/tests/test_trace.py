@@ -11,6 +11,7 @@ import unittest
 
 from adversarial_traces.models import AbstractProfile, Segment, SyntheticWorld, Trace, TraceError, WorldRules
 from adversarial_traces.trace import (
+    trace_to_source_record,
     DEFAULT_TOOL_VALIDATORS, fill_trace, neutralize_trace, profile_trace,
     trace_from_dict, trace_to_dict, validate_shape, validate_trace, validate_world,
 )
@@ -152,6 +153,35 @@ class SerializationTests(unittest.TestCase):
                 trace_from_dict(record)
 
 
+class SourceRecordTests(unittest.TestCase):
+    def trace(self):
+        return Trace("t", (
+            Segment("a", "user", "message", {"text": "Summarize the deal."}),
+            Segment("b", "assistant", "tool_call", {"arguments": {"case_id": "c", "query": "q"}},
+                    tool_name="search_documents", call_id="x"),
+            Segment("c", "tool", "tool_result", {"result": {"matched_chunks": 0, "results": []}},
+                    tool_name="search_documents", call_id="x"),
+            Segment("d", "assistant", "message", {"text": "Done."}),
+        ))
+
+    def test_round_trips_through_the_source_importer(self):
+        record = trace_to_source_record(self.trace(), workflow="structure_payment")
+        back = trace_from_dict(json.loads(json.dumps(record)))
+        self.assertEqual([seg.payload for seg in self.trace().segments], [seg.payload for seg in back.segments])
+        self.assertEqual("structure_payment", record["workflow"])
+        self.assertEqual(list(range(1, 5)), [e["sequence"] for e in record["events"]])
+        self.assertEqual(record["events"][1]["tool_call_id"], record["events"][2]["tool_call_id"])
+        self.assertTrue(record["trace_id"].startswith(record["case_id"]))
+
+    def test_ids_are_fresh_and_workflow_is_checked(self):
+        first = trace_to_source_record(self.trace())
+        self.assertNotEqual(first["case_id"], trace_to_source_record(self.trace())["case_id"])
+        self.assertIsNone(first["workflow"])
+        for bad in ("Microsoft Activision", "", 3):
+            with self.subTest(bad=bad), self.assertRaises(TraceError):
+                trace_to_source_record(self.trace(), workflow=bad)
+
+
 class ShapeAndFillingTests(unittest.TestCase):
     def test_scalar_placeholders_allow_abstraction_but_not_type_errors(self):
         validate_shape({"amount": 5, "flag": True}, {"amount": "{{PRICE}}", "flag": "{{FLAG}}"}, allow_placeholders=True)
@@ -248,6 +278,22 @@ class OptionalDatasetIntegrationTests(unittest.TestCase):
                 ids.add(trace.trace_id)
                 count += 1
         self.assertGreater(count, 0)
+
+
+
+
+class SourceFormatDatasetTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get("ADVERSARIAL_TRACES_DATASET"), "Set ADVERSARIAL_TRACES_DATASET to compare with the source JSONL")
+    def test_output_has_the_same_fields_as_every_source_trace(self):
+        path = Path(os.environ["ADVERSARIAL_TRACES_DATASET"])
+        for line in path.read_text(encoding="utf-8").splitlines():
+            source = json.loads(line)
+            record = trace_to_source_record(trace_from_dict(source), workflow=source["workflow"])
+            self.assertEqual(set(source), set(record))
+            for before, after in zip(source["events"], record["events"]):
+                self.assertEqual(set(before), set(after))
+                for field in ("sequence", "role", "event_type", "tool_name", "content", "arguments", "result"):
+                    self.assertEqual(before.get(field), after.get(field))
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ import tempfile
 
 from adversarial_traces import (
     DEFAULT_TOOL_VALIDATORS, GroundTruth, WorldRules,
-    synthesize_trace, trace_from_dict, trace_to_dict,
+    synthesize_trace, trace_from_dict, trace_to_source_record,
 )
 from adversarial_traces.adapters import (
     PromptAnonymizerModel, PromptFinalAttacker, PromptInferenceModel, PromptWorldGenerator,
@@ -125,6 +125,12 @@ def _rules(path):
     return WorldRules(**value)
 
 
+def _workflow(record):
+    """The generic task type, kept so the output reads like the source traces."""
+    workflow = record.get("workflow") if type(record) is dict else None
+    return workflow if isinstance(workflow, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", workflow) else None
+
+
 def _selected_trace(path, index, trace_id):
     record_index = 0
     with path.open(encoding="utf-8") as source:
@@ -136,9 +142,10 @@ def _selected_trace(path, index, trace_id):
                 if type(record) is not dict:
                     raise ValueError("JSONL records must be objects")
                 if record.get("trace_id") == trace_id:
-                    return trace_from_dict(record)
+                    return trace_from_dict(record), _workflow(record)
             elif record_index == index:
-                return trace_from_dict(_json(line))
+                record = _json(line)
+                return trace_from_dict(record), _workflow(record)
             record_index += 1
     raise ValueError("Selected record does not exist")
 
@@ -181,7 +188,7 @@ def parser():
     selector = result.add_mutually_exclusive_group()
     selector.add_argument("--index", type=int, help="Zero-based nonempty JSONL record index; default 0")
     selector.add_argument("--trace-id", help="Exact trace_id in the input, before import neutralizes IDs")
-    result.add_argument("--out", type=Path, required=True, help="One successful synthetic trace as JSONL")
+    result.add_argument("--out", type=Path, required=True, help="One successful synthetic trace, as a JSONL line in the source_traces.jsonl format")
     result.add_argument("--overwrite", action="store_true", help="Explicitly replace an existing output")
     result.add_argument("--web-search", action="store_true", help=(
         "Run the final attacker on OpenAI with web search (off by default; needs OPENAI_API_KEY)"))
@@ -209,7 +216,7 @@ def main(argv=None):
         if os.path.lexists(output) and not args.overwrite:
             print("Output already exists; use --overwrite to replace it. No API calls made.", file=sys.stderr)
             return 2
-        trace = _selected_trace(args.input, selected_index, args.trace_id)
+        trace, workflow = _selected_trace(args.input, selected_index, args.trace_id)
         ground = _ground(args.ground)
         rules = _rules(args.rules)
         # Construction is lazy: no SDK/client initialization occurs here.
@@ -240,7 +247,8 @@ def main(argv=None):
     if not result.succeeded or result.trace is None:
         return 1
     try:
-        _write_private_output(output, trace_to_dict(result.trace), overwrite=args.overwrite)
+        _write_private_output(output, trace_to_source_record(result.trace, workflow=workflow),
+                              overwrite=args.overwrite)
     except (OSError, UnicodeError, ValueError):
         print("Could not publish output; existing output was not intentionally removed.", file=sys.stderr)
         return 2

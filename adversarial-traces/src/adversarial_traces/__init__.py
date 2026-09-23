@@ -8,6 +8,7 @@ from .models import (
 )
 from .trace import (
     DEFAULT_TOOL_VALIDATORS, fill_trace, neutralize_trace, profile_trace, trace_from_dict, trace_to_dict,
+    trace_to_source_record,
     validate_shape, validate_trace, validate_world,
 )
 
@@ -17,5 +18,5 @@ __all__ = [
     "AttemptSummary", "GroundTruth", "Hint", "Inference", "JSONRequest", "JSONResponse",
     "MatterGuess", "ModelResponseError", "Segment", "SynthesisResult", "SyntheticWorld",
     "Trace", "TraceError", "WorldRules", "DEFAULT_TOOL_VALIDATORS", "fill_trace", "neutralize_trace", "profile_trace",
-    "trace_from_dict", "trace_to_dict", "validate_shape", "validate_trace", "validate_world",
+    "trace_from_dict", "trace_to_dict", "trace_to_source_record", "validate_shape", "validate_trace", "validate_world",
 ]

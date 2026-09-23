@@ -209,6 +209,73 @@ def trace_to_dict(trace: Trace) -> dict:
     }
 
 
+SOURCE_SCHEMA_VERSION = "1.0"
+_WORKFLOW = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+
+
+def trace_to_source_record(trace: Trace, *, workflow: str | None = None) -> dict:
+    """Serialize to the repo's ``source_traces.jsonl`` record schema.
+
+    The output has the same top-level fields and event fields as the source
+    traces, so it can be read by anything that reads them (including
+    ``trace_from_dict``). IDs are fresh and carry no case name. ``workflow``
+    is the generic task type (e.g. ``structure_payment``) and is optional.
+    Timestamps and run metrics are not invented, so they are null.
+    """
+    validate_trace(trace)
+    if workflow is not None and (not isinstance(workflow, str) or not _WORKFLOW.fullmatch(workflow)):
+        raise TraceError("workflow must be a lowercase snake_case task type")
+    case_id = f"synthetic_{uuid.uuid4().hex[:12]}"
+    trace_id = f"{case_id}_t01"
+    calls: dict[str, str] = {}
+    events = []
+    for sequence, segment in enumerate(trace.segments, 1):
+        event: dict[str, Any] = {
+            "event_id": f"{trace_id}.e{sequence:03d}",
+            "sequence": sequence,
+            "role": segment.role,
+            "event_type": segment.kind,
+            "timestamp": None,
+            "timestamp_kind": "not recorded for synthetic trace",
+        }
+        if segment.kind == "message":
+            event["content"] = copy.deepcopy(segment.payload["text"])
+            event["model_latency_ms"] = None
+            event["model_token_usage"] = None
+        else:
+            call_id = calls.setdefault(segment.call_id, f"{trace_id}.call{len(calls) + 1:03d}")
+            event["tool_call_id"] = call_id
+            event["tool_name"] = segment.tool_name
+            if segment.kind == "tool_call":
+                event["arguments"] = copy.deepcopy(segment.payload["arguments"])
+            else:
+                event["result"] = copy.deepcopy(segment.payload["result"])
+                event["elapsed_ms"] = None
+                event["observed_tool_run_at"] = None
+        events.append(event)
+    return {
+        "schema_version": SOURCE_SCHEMA_VERSION,
+        "trace_id": trace_id,
+        "case_id": case_id,
+        "task_id": f"{case_id}_task01",
+        "workflow": workflow,
+        "as_of_date": None,
+        "provenance": {
+            "dataset_kind": "synthetic legal-agent trace",
+            "author_attribution": "adversarial-traces synthesis from an abstracted source trace",
+            "conversation_mode": "synthetic",
+            "tool_execution_mode": "not executed; tool records are synthetic",
+            "language_model_api_called_at_runtime": True,
+            "timestamp_policy": "timestamps are not recorded for synthetic traces",
+            "fictional_internal_dialogue": True,
+            "vendor_internal_log": False,
+        },
+        "events": events,
+        "artifacts": [],
+        "final_outcome": None,
+    }
+
+
 def trace_from_dict(record: dict) -> Trace:
     """Import canonical records or the earlier source-trace event schema.
 
