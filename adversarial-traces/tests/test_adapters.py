@@ -168,6 +168,14 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(set(backend.requests[0].payload), {"trace", "instruction"})
         self.assertTrue(backend.requests[0].web_search)
 
+    def test_list_value_is_joined_into_one_guess(self):
+        data = {"inferences": [{**inference_data()["inferences"][0], "value": ["Elm", "Oak"]}]}
+        result = PromptInferenceModel(RecordingBackend(JSONResponse(data))).infer("Elm", ("parties",))
+        self.assertEqual("Elm; Oak", result[0].value)
+        nested = {"inferences": [{**inference_data()["inferences"][0], "value": [["Elm"]]}]}
+        with self.assertRaises(ModelResponseError):
+            PromptInferenceModel(RecordingBackend(JSONResponse(nested))).infer("Elm", ("parties",))
+
     def test_misquoted_evidence_is_dropped_not_fatal(self):
         data = {"inferences": [{**inference_data()["inferences"][0], "spans": ["Elm", "invented evidence"]}]}
         result = PromptInferenceModel(RecordingBackend(JSONResponse(data))).infer("Elm", ("parties",))

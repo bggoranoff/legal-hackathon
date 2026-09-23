@@ -80,6 +80,18 @@ def _scalar(value: Any) -> str | int | float | bool | None:
     raise ModelResponseError("Expected a finite JSON scalar")
 
 
+def _inference_value(value: Any) -> str | int | float | bool | None:
+    """A scalar, or a list of scalars joined with "; " (e.g. several parties).
+
+    Some providers don't enforce the schema and return lists for multi-valued
+    attributes; the guess is still useful, so it is kept.
+    """
+    if type(value) is list:
+        items = [_scalar(item) for item in value]
+        return "; ".join(str(item) for item in items if item is not None and item != "") or None
+    return _scalar(value)
+
+
 def _complete(backend: JSONBackend, request: JSONRequest) -> JSONResponse:
     try:
         response = backend.complete(request)
@@ -148,7 +160,7 @@ class PromptInferenceModel:
             # Quotes are only hints. Models often misquote long text (line breaks,
             # quote marks), so drop quotes that don't appear rather than failing.
             spans = tuple(span for span in _strings(item["spans"], "inference spans") if span in text)
-            result.append(Inference(attribute, _scalar(item["value"]),
+            result.append(Inference(attribute, _inference_value(item["value"]),
                                     _string(item["reasoning"], "reasoning"),
                                     _certainty(item["certainty"]), spans))
         return tuple(result)
