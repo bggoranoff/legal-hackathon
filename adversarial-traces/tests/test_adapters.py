@@ -92,12 +92,12 @@ class AdapterTests(unittest.TestCase):
 
     def test_json_content_is_sent_and_returned_as_an_object(self):
         # Quotes inside values must survive without the model escaping them.
-        backend = RecordingBackend(JSONResponse({"json": {"text": 'The "{{BUYER}}" deal'}}))
-        text = json.dumps({"text": 'The "Elm" deal'})
+        backend = RecordingBackend(JSONResponse({"json": {"note": 'The "{{BUYER}}" deal'}}))
+        text = json.dumps({"note": 'The "Elm" deal'})
         result = PromptAnonymizerModel(backend).anonymize(text, ())
-        self.assertEqual({"text": 'The "{{BUYER}}" deal'}, json.loads(result))
+        self.assertEqual({"note": 'The "{{BUYER}}" deal'}, json.loads(result))
         request = backend.requests[0]
-        self.assertEqual({"text": 'The "Elm" deal'}, request.payload["json"])
+        self.assertEqual({"note": 'The "Elm" deal'}, request.payload["json"])
         self.assertNotIn("text", request.payload)
         self.assertIn("preserve all object keys", request.system)
         with self.assertRaises(ModelResponseError):
@@ -110,6 +110,13 @@ class AdapterTests(unittest.TestCase):
         echoed = {"text": "ok", "inferences": [], "hints": [], "identity": "unused"}
         self.assertEqual("ok", PromptAnonymizerModel(RecordingBackend(JSONResponse(echoed))).anonymize("Elm", ()))
 
+    def test_message_step_is_sent_as_plain_text_and_rewrapped(self):
+        backend = RecordingBackend(JSONResponse({"text": "{{BUYER}} deal"}))
+        out = PromptAnonymizerModel(backend).anonymize(json.dumps({"text": "Elm deal"}), ())
+        self.assertEqual({"text": "{{BUYER}} deal"}, json.loads(out))
+        self.assertEqual("Elm deal", backend.requests[0].payload["text"])
+        self.assertNotIn("json", backend.requests[0].payload)
+
     def test_json_rewrite_repairs_echoed_and_dropped_null_fields_only(self):
         original = {"result": {"items": [{"id": "Elm-1", "date": None}], "note": "Elm"}}
         reply = {"json": {"result": {"items": [{"id": "{{DOC}}"}], "note": "{{BUYER}}"},
@@ -117,10 +124,11 @@ class AdapterTests(unittest.TestCase):
         out = PromptAnonymizerModel(RecordingBackend(JSONResponse(reply))).anonymize(json.dumps(original), ())
         self.assertEqual({"result": {"items": [{"id": "{{DOC}}", "date": None}], "note": "{{BUYER}}"}},
                          json.loads(out))
-        # A dropped field that had a real value is not restored.
+        # A dropped field that had a real value comes back as a placeholder, never the value.
         reply = {"json": {"result": {"items": [{"date": None}], "note": "{{BUYER}}"}}}
         out = PromptAnonymizerModel(RecordingBackend(JSONResponse(reply))).anonymize(json.dumps(original), ())
         self.assertNotIn("Elm", out)
+        self.assertEqual("{{ID}}", json.loads(out)["result"]["items"][0]["id"])
 
     def test_findings_that_only_point_at_placeholders_are_dropped(self):
         item = inference_data()["inferences"][0]

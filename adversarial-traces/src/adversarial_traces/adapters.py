@@ -193,9 +193,10 @@ def _repair_shape(original: Any, rewritten: Any) -> Any:
     """Undo two harmless format slips seen from some providers.
 
     Fields the original never had are dropped (models echo input fields into
-    the answer), and fields that were null in the original and went missing
-    are restored as null. Nothing else is changed, so real values never come
-    back; every other structural change is still rejected later.
+    the answer). A field that went missing is restored as null if it was null,
+    or as a placeholder named after the field (e.g. {{SECTION_HINT}}) if it
+    held a scalar, which stage 2 then fills with an invented value. Real
+    values never come back; every other structural change is still rejected.
     """
     if type(original) is dict and type(rewritten) is dict:
         repaired = {}
@@ -204,6 +205,9 @@ def _repair_shape(original: Any, rewritten: Any) -> Any:
                 repaired[key] = _repair_shape(value, rewritten[key])
             elif value is None:
                 repaired[key] = None
+            elif type(value) in (str, int, float, bool):
+                name = re.sub(r"[^A-Z0-9]+", "_", str(key).upper()).strip("_")
+                repaired[key] = "{{" + (name if name[:1].isalpha() else "FIELD_" + name) + "}}"
         return repaired
     if type(original) is list and type(rewritten) is list and len(original) == len(rewritten):
         return [_repair_shape(a, b) for a, b in zip(original, rewritten)]
@@ -227,6 +231,11 @@ class PromptAnonymizerModel:
             structured = json.loads(text)
         except ValueError:
             structured = None
+        # A message step ({"text": "..."}) goes to the model as plain text and
+        # is re-wrapped here, so the model can't rename or drop the field.
+        if type(structured) is dict and set(structured) == {"text"} and type(structured["text"]) is str:
+            rewritten = self.anonymize(structured["text"], inferences, hints=hints)
+            return json.dumps({"text": rewritten}, ensure_ascii=False, allow_nan=False)
         as_json = type(structured) is dict
         if as_json:
             shape_rule = (
