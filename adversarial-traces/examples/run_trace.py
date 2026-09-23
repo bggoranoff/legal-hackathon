@@ -192,7 +192,8 @@ def parser():
             f"Bedrock model ID (default: {default}). With --web-search the attacker needs an "
             "explicit OpenAI model ID"))
     result.add_argument("--abstraction-rounds", type=int, default=2)
-    result.add_argument("--outer-rounds", type=int, default=3)
+    result.add_argument("--outer-rounds", type=int, default=5,
+        help="Most full attack rounds before giving up (default: 5)")
     result.add_argument("--rules", type=Path, help="Optional JSON object with WorldRules fields")
     selector = result.add_mutually_exclusive_group()
     selector.add_argument("--index", type=int, help="Zero-based nonempty JSONL record index; default 0")
