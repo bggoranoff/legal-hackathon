@@ -25,7 +25,7 @@ from adversarial_traces.adapters import (
     PromptWorldGenerator,
 )
 from adversarial_traces.matching import validate_ground
-from adversarial_traces.bedrock_backend import BedrockConverseBackend
+from adversarial_traces.bedrock_backend import BedrockConverseBackend, default_reasoning_effort
 from adversarial_traces.openai_backend import OpenAIResponsesBackend
 
 
@@ -203,8 +203,13 @@ def parser():
         "Run the final attacker on OpenAI with web search (off by default; needs OPENAI_API_KEY)"))
     result.add_argument("--region", help="Bedrock region; defaults to AWS_REGION, then us-east-1")
     result.add_argument("--reasoning-effort", choices=("none", "low", "medium", "high", "xhigh", "max"),
-        help=("Reasoning level for every Bedrock model that supports it "
+        help=("Reasoning level for the generator, attacker and judge "
               "(default: max for GPT 6 Luna, xhigh for GPT 6 Sol, unset for others)"))
+    result.add_argument("--stage1-reasoning", choices=("none", "low", "medium", "high", "xhigh", "max"),
+        default="high", help=("Reasoning level for the stage 1 finder and rewriter, which make most of the "
+                              "calls (default: high; ignored for models without a reasoning setting)"))
+    result.add_argument("--parallel-steps", type=int, default=8,
+        help="How many steps stage 1 rewrites at once (default: 8; 1 = one at a time)")
     result.add_argument("--bedrock-structured", choices=("tool", "text"), default="tool", help=(
         "How Bedrock returns JSON: forced tool call (default) or plain JSON text for models without tool choice"))
     return result
@@ -220,7 +225,7 @@ def main(argv=None):
         if not getattr(args, name):
             setattr(args, name, default)
     selected_index = 0 if args.index is None else args.index
-    if selected_index < 0 or args.abstraction_rounds < 1 or args.outer_rounds < 0:
+    if selected_index < 0 or args.abstraction_rounds < 1 or args.outer_rounds < 0 or args.parallel_steps < 1:
         print("Invalid index or round budget; no API calls made.", file=sys.stderr)
         return 2
     try:
@@ -239,13 +244,18 @@ def main(argv=None):
         ground = _ground(args.ground) if args.ground else None
         rules = _rules(args.rules)
         # Construction is lazy: no SDK/client initialization occurs here.
-        def bedrock(model):
-            # Without --reasoning-effort the backend default applies (max for GPT 6 Luna).
-            effort = {"reasoning_effort": args.reasoning_effort} if args.reasoning_effort else {}
-            return BedrockConverseBackend(model, region=args.region, structured=args.bedrock_structured, **effort)
+        def bedrock(model, effort=None):
+            # Without an explicit level the backend default applies (max for
+            # GPT 6 Luna, xhigh for GPT 6 Sol, none for models without one).
+            effort = effort or args.reasoning_effort
+            if effort and default_reasoning_effort(model) is None:
+                effort = None  # e.g. Claude on Bedrock rejects a reasoning level
+            kwargs = {"reasoning_effort": effort} if effort else {}
+            return BedrockConverseBackend(model, region=args.region, structured=args.bedrock_structured, **kwargs)
 
-        inference = PromptInferenceModel(bedrock(args.inference_model))
-        anonymizer = PromptAnonymizerModel(bedrock(args.anonymizer_model))
+        # Stage 1 makes most of the calls, so it runs at a lower level by default.
+        inference = PromptInferenceModel(bedrock(args.inference_model, args.stage1_reasoning))
+        anonymizer = PromptAnonymizerModel(bedrock(args.anonymizer_model, args.stage1_reasoning))
         generator = PromptWorldGenerator(bedrock(args.generator_model))
         # Bedrock has no built-in web search, so a web-searching attacker uses OpenAI.
         attacker_backend = (OpenAIResponsesBackend(args.attacker_model) if args.web_search
@@ -257,7 +267,7 @@ def main(argv=None):
             inference_model=inference, anonymizer_model=anonymizer,
             generator=generator, final_attacker=attacker, rules=rules,
             tool_validators=DEFAULT_TOOL_VALIDATORS, require_web_search=args.web_search,
-            judge=judge)
+            judge=judge, parallel_steps=args.parallel_steps)
     except (OSError, UnicodeError, ValueError, TypeError, RecursionError):
         # Input or provider text may be present in exception strings. Keep all
         # such text out of stderr and do not persist failed inputs/feedback.

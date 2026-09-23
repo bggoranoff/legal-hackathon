@@ -17,6 +17,7 @@ import json
 import math
 import os
 import re
+import threading
 from typing import Any
 
 from .models import JSONRequest, JSONResponse, ModelResponseError, TraceError
@@ -107,6 +108,7 @@ class BedrockConverseBackend:
             raise TraceError("reasoning_effort must be one of: " + ", ".join(REASONING_EFFORTS))
         self.model_id = model
         self._client = client
+        self._client_lock = threading.Lock()  # stage 1 calls from several threads
         self.region = region
         self.max_output_tokens = max_output_tokens
         self.timeout = timeout
@@ -116,6 +118,10 @@ class BedrockConverseBackend:
         self.reasoning_effort = reasoning_effort
 
     def _get_client(self) -> Any:
+        with self._client_lock:
+            return self._make_client()
+
+    def _make_client(self) -> Any:
         if self._client is None:
             try:
                 import boto3

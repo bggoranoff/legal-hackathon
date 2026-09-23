@@ -250,7 +250,9 @@ python examples/run_trace.py ../backend/data/source_traces.jsonl \
   --out local_results/synthetic_trace.json
 ```
 
-The runner's model flags are optional: by default stages 1-2 (inference, anonymizer, generator) use GPT 6 Luna (`global.openai.gpt-6-luna`, max reasoning) and the attacker uses GPT 6 Sol (`global.openai.gpt-6-sol`, xhigh reasoning). Pass any `--*-model` flag to override one.
+The runner's model flags are optional: by default stages 1-2 (inference, anonymizer, generator) use GPT 6 Luna (`global.openai.gpt-6-luna`, max reasoning) and the attacker uses GPT 6 Sol (`global.openai.gpt-6-sol`, xhigh reasoning). Pass any `--*-model` flag to override one. The stage 1 finder and rewriter, which make most of the calls, run at `high` reasoning (`--stage1-reasoning`); the generator and judge keep Luna's `max` and the attacker Sol's `xhigh` (`--reasoning-effort` overrides those three).
+
+Stage 1 rewrites up to 8 steps at once (`parallel_steps=` in `synthesize_trace`, `--parallel-steps` in the runner; 1 = one at a time). Steps are independent there, so results are the same; model clients must be safe to call from several threads, which both included backends are.
 
 Add `--web-search` to run the attacker on OpenAI with web search (then `--attacker-model` is an OpenAI model ID). Use `--region` to pick a Bedrock region and `--bedrock-structured text` for models without forced tool calls.
 

@@ -372,6 +372,39 @@ class SynthesizeTraceTests(unittest.TestCase):
                 synthesize_trace(simple_trace(), ground, 1, 1, inference_model=inference,
                     anonymizer_model=anonymizer, generator=generator, final_attacker=attacker, judge=judge)
 
+    def test_parallel_steps_keep_order_and_match_sequential(self):
+        import threading, time
+        seen = set()
+
+        class SlowAnonymizer(RecordingAnonymizer):
+            def anonymize(self, text, inferences, *, hints=()):
+                seen.add(threading.get_ident())
+                time.sleep(0.02)
+                return super().anonymize(text, inferences, hints=hints)
+
+        results = []
+        for workers in (1, 4):
+            inference, _, generator, attacker = pipeline_doubles()
+            anonymizer = SlowAnonymizer(lambda text, inferences, hints: text.replace("Original Buyer", "{{BUYER}}"))
+            result = synthesize_trace(tool_trace(), GroundTruth(identities=("Unrelated",)), 1, 1,
+                inference_model=inference, anonymizer_model=anonymizer, generator=generator,
+                final_attacker=attacker, parallel_steps=workers)
+            self.assertTrue(result.succeeded)
+            results.append([seg.payload for seg in result.trace.segments])
+        self.assertEqual(results[0], results[1])
+        self.assertGreater(len(seen), 1)
+
+    def test_parallel_step_failure_is_reported_like_sequential(self):
+        inference, _, generator, attacker = pipeline_doubles()
+        anonymizer = RecordingAnonymizer(lambda text, inferences, hints: "not json")
+        result = synthesize_trace(tool_trace(), GroundTruth(identities=("Unrelated",)), 1, 1,
+            inference_model=inference, anonymizer_model=anonymizer, generator=generator,
+            final_attacker=attacker, parallel_steps=4)
+        self.assertEqual("invalid_candidate", result.reason)
+        with self.assertRaises(TraceError):
+            synthesize_trace(tool_trace(), GroundTruth(identities=("X",)), 1, 1, inference_model=inference,
+                anonymizer_model=anonymizer, generator=generator, final_attacker=attacker, parallel_steps=0)
+
     def test_web_search_not_required_by_default(self):
         doubles = list(pipeline_doubles())
         doubles[3] = RecordingAttacker([AttackReport((), "No guess", web_search_used=False)])

@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 
@@ -53,6 +54,26 @@ def _payload_texts(trace: Trace) -> list[str]:
     for segment in trace.segments:
         walk(segment.payload)
     return found
+
+
+def _map_ordered(fn, items, workers: int) -> list:
+    """``[fn(item) for item in items]``, run on up to ``workers`` threads.
+
+    Order is preserved. On the first exception, steps not yet started are
+    cancelled and that exception is raised, as the sequential loop would.
+    """
+    items = list(items)
+    if workers <= 1 or len(items) <= 1:
+        return [fn(item) for item in items]
+    with ThreadPoolExecutor(max_workers=min(workers, len(items))) as pool:
+        futures = [pool.submit(fn, item) for item in items]
+        done, _ = wait(futures, return_when=FIRST_EXCEPTION)
+        for future in futures:
+            if future.done() and future.exception() is not None:
+                for other in futures:
+                    other.cancel()
+                raise future.exception()
+        return [future.result() for future in futures]
 
 
 def _round_limit(value: int, name: str, *, positive: bool = False) -> None:
@@ -208,6 +229,7 @@ def synthesize_trace(
     matcher: Callable[[AttackReport, GroundTruth], bool] = matches,
     require_web_search: bool = False,
     judge: MatchJudge | None = None,
+    parallel_steps: int = 8,
 ) -> SynthesisResult:
     """Abstract locally, instantiate one world, then attack the whole trace.
 
@@ -228,9 +250,13 @@ def synthesize_trace(
     Web search is off by default: the final attack relies on the attacker
     model's own knowledge. With require_web_search=True, an attack without a
     completed web search fails as invalid_attack.
+
+    Stage 1 rewrites up to ``parallel_steps`` steps at once (1 = one at a
+    time). Model clients must then be safe to call from several threads.
     """
     _round_limit(max_abstraction_rounds, "max_abstraction_rounds", positive=True)
     _round_limit(max_outer_rounds, "max_outer_rounds")
+    _round_limit(parallel_steps, "parallel_steps", positive=True)
     if type(require_web_search) is not bool:
         raise TraceError("require_web_search must be a bool")
     instruction = WEB_SEARCH_ATTACK_INSTRUCTION if require_web_search else FINAL_ATTACK_INSTRUCTION
@@ -268,8 +294,7 @@ def synthesize_trace(
     for round_number in range(1, max_outer_rounds + 1):
         stage = "abstraction"
         try:
-            abstract_segments = []
-            for segment in original.segments:
+            def abstract_segment(segment):
                 # Only JSON payload is rewritten; order, role, kind and call
                 # pairing remain owned by the program, not by an LLM.
                 local_hints = tuple(hint for hint in hints
@@ -287,7 +312,12 @@ def synthesize_trace(
                 )
                 payload = _parse_payload(abstract_text)
                 validate_shape(source_payload, payload, allow_placeholders=True)
-                abstract_segments.append(replace(segment, payload=payload))
+                return replace(segment, payload=payload)
+
+            # Steps are independent in stage 1, so they are rewritten
+            # concurrently; results keep the original order. The first
+            # failure cancels steps not yet started and is re-raised.
+            abstract_segments = _map_ordered(abstract_segment, original.segments, parallel_steps)
             abstracted = Trace(original.trace_id, tuple(abstract_segments))
             # Abstract numeric placeholders are intentionally not subjected to
             # final tool argument type validation until after instantiation.
