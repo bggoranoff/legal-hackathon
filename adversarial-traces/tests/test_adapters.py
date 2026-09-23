@@ -208,9 +208,10 @@ class AdapterTests(unittest.TestCase):
         labelled = {"inferences": [{**inference_data()["inferences"][0], "value": {"signing": "2022", "closing": None}}]}
         result = PromptInferenceModel(RecordingBackend(JSONResponse(labelled))).infer("Elm", ("parties",))
         self.assertEqual("signing: 2022", result[0].value)
-        nested = {"inferences": [{**inference_data()["inferences"][0], "value": [["Elm"]]}]}
-        with self.assertRaises(ModelResponseError):
-            PromptInferenceModel(RecordingBackend(JSONResponse(nested))).infer("Elm", ("parties",))
+        objects = {"inferences": [{**inference_data()["inferences"][0],
+                                   "value": [{"name": "Elm", "role": "Parent"}, {"name": "Oak", "role": None}]}]}
+        result = PromptInferenceModel(RecordingBackend(JSONResponse(objects))).infer("Elm", ("parties",))
+        self.assertEqual("name: Elm, role: Parent; name: Oak", result[0].value)
 
     def test_misquoted_evidence_is_dropped_not_fatal(self):
         data = {"inferences": [{**inference_data()["inferences"][0], "spans": ["Elm", "invented evidence"]}]}

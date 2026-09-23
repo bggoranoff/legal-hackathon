@@ -93,19 +93,28 @@ def _scalar(value: Any) -> str | int | float | bool | None:
     raise ModelResponseError("Expected a finite JSON scalar")
 
 
-def _inference_value(value: Any) -> str | int | float | bool | None:
-    """A scalar, or a list/object of scalars flattened into one "; "-joined guess.
-
-    Some providers don't enforce the schema and return lists (several parties)
-    or labelled objects (several dates); the guess is still useful, so it is
-    kept. Only one level of nesting is accepted.
-    """
+def _flatten(value: Any, depth: int = 0) -> str:
+    """Nested lists/objects of scalars as one line of text; empties are skipped."""
+    if depth > 4:
+        raise ModelResponseError("Inference value is nested too deeply")
     if type(value) is list:
-        parts = [str(_scalar(item)) for item in value if item is not None and item != ""]
-        return "; ".join(parts) or None
+        return "; ".join(part for part in (_flatten(item, depth + 1) for item in value) if part)
     if type(value) is dict:
-        parts = [f"{key}: {_scalar(item)}" for key, item in value.items() if item is not None and item != ""]
-        return "; ".join(parts) or None
+        parts = ((key, _flatten(item, depth + 1)) for key, item in value.items())
+        return ", ".join(f"{key}: {part}" for key, part in parts if part)
+    scalar = _scalar(value)
+    return "" if scalar is None else str(scalar)
+
+
+def _inference_value(value: Any) -> str | int | float | bool | None:
+    """A scalar, or nested lists/objects of scalars flattened into one guess.
+
+    Some providers don't enforce the schema and return lists (several
+    parties), labelled objects (several dates) or lists of objects
+    (name + role per party); the guess is still useful, so it is kept as text.
+    """
+    if type(value) in (list, dict):
+        return _flatten(value) or None
     return _scalar(value)
 
 
